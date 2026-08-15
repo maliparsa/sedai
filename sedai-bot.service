@@ -1,0 +1,17 @@
+[Unit]
+Description=Sedai Telegram bot (voice transcription & AI assistant)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=server
+Group=server
+WorkingDirectory=/opt/sedai-bot
+EnvironmentFile=/opt/sedai-bot/.env
+ExecStart=/opt/sedai-bot/venv/bin/python /opt/sedai-bot/sedai_bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

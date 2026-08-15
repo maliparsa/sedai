@@ -1,5 +1,6 @@
 """
-Telegram -> Gemini Farsi voice transcription bot.
+Sedai: a Telegram bot backed by Gemini for voice transcription, summarizing, drafting
+replies, and general AI chat.
 """
 
 import logging
@@ -21,7 +22,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("farsi-bot")
+log = logging.getLogger("sedai-bot")
 
 logging.getLogger("httpx").setLevel(logging.WARNING)  # avoid leaking bot token (in request URLs) to journald
 

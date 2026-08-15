@@ -1,7 +1,8 @@
-# farsi-bot
+# Sedai
 
-A private Telegram bot that transcribes voice notes (Gemini), and can summarize or
-draft replies to them, plus double as a plain-text chat with Gemini.
+A private Telegram bot backed by Gemini: transcribes voice notes in whatever language
+they're spoken in, and doubles as a general AI assistant — summarizing, drafting
+replies, and plain chat.
 
 ## Features
 
@@ -30,19 +31,19 @@ draft replies to them, plus double as a plain-text chat with Gemini.
    ```
 6. Run it directly for testing:
    ```sh
-   venv/bin/python farsi_transcribe_bot.py
+   venv/bin/python sedai_bot.py
    ```
 
 ## Running as a systemd service
 
-`farsi-bot.service` is a template unit file. Adjust `WorkingDirectory`,
+`sedai-bot.service` is a template unit file. Adjust `WorkingDirectory`,
 `EnvironmentFile`, `ExecStart`, and `User`/`Group` to match your deployment path and
 user, then:
 
 ```sh
-sudo cp farsi-bot.service /etc/systemd/system/
+sudo cp sedai-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now farsi-bot
+sudo systemctl enable --now sedai-bot
 ```
 
 ## Notes

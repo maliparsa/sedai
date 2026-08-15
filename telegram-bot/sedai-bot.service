@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=server
 Group=server
-WorkingDirectory=/opt/sedai-bot
-EnvironmentFile=/opt/sedai-bot/.env
-ExecStart=/opt/sedai-bot/venv/bin/python /opt/sedai-bot/sedai_bot.py
+WorkingDirectory=/opt/sedai-bot/telegram-bot
+EnvironmentFile=/opt/sedai-bot/telegram-bot/.env
+ExecStart=/opt/sedai-bot/telegram-bot/venv/bin/python /opt/sedai-bot/telegram-bot/sedai_bot.py
 Restart=always
 RestartSec=5
 

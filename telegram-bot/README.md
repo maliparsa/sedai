@@ -1,8 +1,13 @@
 # Sedai Telegram Bot
 
-A private Telegram bot backed by Gemini: transcribes voice notes in whatever language
+**English** | [فارسی](#farsi)
+
+A personal Telegram bot backed by Gemini: transcribes voice notes in whatever language
 they're spoken in, and doubles as a general AI assistant — summarizing, drafting
 replies, and plain chat.
+
+Access is limited to a list of Telegram user IDs you control; everyone else is silently
+ignored.
 
 ## Features
 
@@ -17,22 +22,20 @@ replies, and plain chat.
 - **Model fallback**: each task tries a chain of Gemini models, falling back on
   rate limits or server errors instead of failing outright.
 - **Per-user model settings**: `/settings` lets any user choose their preferred audio
-  and text models. Admin can set default chains, manage the user list, update the API
-  key, and view status — all applied live without restart.
-- **Standing instructions**: each user can set per-user instructions (up to 500 chars)
-  that shape how the bot writes for them — one for draft replies, one for plain chat,
-  one for summaries. Call a style command with no argument to see the current instruction
-  in full and send a reply to update it; call with text to set it inline. Reply with
-  exactly `clear` to remove an instruction. They apply live without restart, and can be
-  overridden per-message (voice-dictated reply instructions rank above the standing reply
-  instruction).
-- **Reply-based input**: menu buttons and no-argument commands that need user input now
-  send a prompt instead of telling you to retype a command. Simply reply to the prompt
-  with your input — there is no timeout and no risk of accidentally supplying text meant
-  for chat instead.
-- **Command discovery**: `/help` and `/start` list all available commands in role-aware
-  format. The Telegram command menu (/) is populated at startup and shows only commands
-  relevant to your role.
+  and text models. The admin can set default chains, manage the user list, update the API
+  key, and view status — all applied live without a restart.
+- **Standing instructions**: each user can set their own instructions (up to 500
+  characters) that shape how the bot writes for them — one for draft replies, one for
+  plain chat, one for summaries. Call a style command with no argument to see the current
+  instruction in full and reply to update it; call it with text to set it inline. Reply
+  with exactly `clear` to remove one. They apply live, and a voice-dictated per-message
+  instruction outranks the standing reply instruction.
+- **Reply-based input**: menu buttons and no-argument commands that need input send a
+  prompt you reply to, instead of telling you to retype a command. There is no timeout,
+  and a message that isn't a reply to a prompt is never mistaken for one.
+- **Command discovery**: `/help` and `/start` list the available commands for your role.
+  Telegram's "/" menu is populated at startup, and admin commands appear only in the
+  admin's own chat.
 
 ## Setup
 
@@ -59,9 +62,9 @@ replies, and plain chat.
 | `/help` | all allowed users | lists available commands and how to use the bot |
 | `/start` | all allowed users | same as `/help`, shown on first contact |
 | `/settings` | all allowed users | configure your audio and text model preferences, or view/clear your standing instructions |
-| `/replystyle [text]` | all allowed users | view your current standing instruction for draft replies, or set a new one (optionally inline); reply with `clear` to remove |
-| `/chatstyle [text]` | all allowed users | view your current standing instruction for plain-text chat, or set a new one (optionally inline); reply with `clear` to remove |
-| `/summarystyle [text]` | all allowed users | view your current standing instruction for summaries, or set a new one (optionally inline); reply with `clear` to remove |
+| `/replystyle [text]` | all allowed users | view your standing instruction for draft replies, or set a new one; reply with `clear` to remove |
+| `/chatstyle [text]` | all allowed users | view your standing instruction for plain chat, or set a new one; reply with `clear` to remove |
+| `/summarystyle [text]` | all allowed users | view your standing instruction for summaries, or set a new one; reply with `clear` to remove |
 | `/reset` | all allowed users | clear your chat history |
 | `/setkey <key>` | admin only | update the Gemini API key |
 | `/adduser <id>` | admin only | allow another Telegram user ID |
@@ -82,28 +85,157 @@ sudo systemctl enable --now sedai-bot
 
 ## Testing
 
-- **Offline test suites** (`tests/`): run `python3 tests/run_all.py` to execute the
-  offline tests against mock Telegram and Gemini stubs. These run anywhere with no
-  network or real credentials required.
-- **Smoke tests** (`smoke_test.py`): run `python3 smoke_test.py` (inside the venv on
-  the server) to test the real `python-telegram-bot` library. This covers command
-  parsing for non-ASCII scripts (e.g., Farsi) and Telegram message filters that the
-  offline stubs cannot fully emulate. Requires no network or real credentials.
+- **Offline suites** (`tests/`): `python3 tests/run_all.py` runs every suite against
+  Telegram and Gemini stubs. No network and no real credentials required, so they run
+  anywhere.
+- **Smoke test** (`smoke_test.py`): run it with the venv python to exercise the real
+  `python-telegram-bot` library — command parsing for non-ASCII scripts (Farsi), emoji,
+  multi-line and `@botname` arguments, plus the message filters the reply-based input
+  flow depends on. The offline stubs implement command matching themselves and so cannot
+  cover this. Also needs no network or credentials.
 
 ## Notes
 
-- Only the Telegram user IDs listed in `ALLOWED_USER_ID` can use the bot; everyone else
-  is silently ignored. The first ID in the list is the admin.
-- `.env` is gitignored — never commit real tokens/keys.
-- `settings.json` (created alongside `.env` on first run) persists per-user model
-  preferences and global settings at chmod 600. It overrides `.env` values where
-  present, allowing live configuration updates without restarting.
-- `/settings`: every allowed user can configure their own audio and text model choices.
-  The admin additionally manages default model chains, the allowed user list, the
-  Gemini API key, and views system status.
-- `/setkey <key>`: admin-only command to update the API key. The bot immediately
-  deletes the message containing the key and replies with a confirmation showing only
-  the fingerprint. The key still transits Telegram's servers, so this is intended for
-  freshly minted keys with plans to revoke the old one afterwards.
-- Unknown commands: allowed users receive "Unknown command — try /help". Non-allowed
-  users are silently ignored.
+- Only the Telegram user IDs in `ALLOWED_USER_ID` can use the bot; everyone else is
+  silently ignored. The first ID in the list is the admin.
+- `.env` is gitignored — never commit real tokens or keys.
+- `settings.json` (created alongside `.env` on first run, chmod 600) persists per-user
+  preferences and global settings, and overrides `.env` where present. This is what lets
+  configuration change live, without a restart or a redeploy.
+- `/setkey <key>`: the bot deletes the message containing the key immediately and replies
+  with a redacted fingerprint only. The key still passes through Telegram's servers, so
+  use it with a freshly minted key and revoke the old one afterwards.
+- Unknown commands: allowed users get "Unknown command — try /help". Everyone else is
+  ignored.
+
+---
+
+<a id="farsi"></a>
+
+<div dir="rtl">
+
+# ربات تلگرام Sedai
+
+[English](#sedai-telegram-bot) | **فارسی**
+
+یک ربات شخصی تلگرام مبتنی بر Gemini: پیام‌های صوتی را به هر زبانی که گفته شده‌اند
+رونویسی می‌کند و در کنار آن نقش یک دستیار هوش مصنوعی را دارد — خلاصه‌سازی، نوشتن
+پیش‌نویس پاسخ، و گفت‌وگوی متنی.
+
+دسترسی محدود به فهرستی از شناسه‌های کاربری تلگرام است که خودتان تعیین می‌کنید؛ پیام
+دیگران بدون هیچ پاسخی نادیده گرفته می‌شود.
+
+## قابلیت‌ها
+
+- **رونویسی**: یک پیام صوتی یا فایل صوتی بفرستید و متن آن را دریافت کنید، به همان زبان و
+  خطی که صحبت شده است.
+- **خلاصه‌سازی / پیش‌نویس پاسخ**: زیر هر متن رونویسی‌شده دو دکمه برای خلاصه کردن آن یا
+  نوشتن پیش‌نویس پاسخ قرار دارد.
+- **پاسخ همراه با دستور**: اگر به یک متن رونویسی‌شده با پیام صوتی خودتان پاسخ دهید، ربات
+  آن را به عنوان دستور شفاهی برای نوشتن پاسخ به پیام اصلی در نظر می‌گیرد.
+- **گفت‌وگوی متنی**: هر پیام متنی به Gemini فرستاده می‌شود و تاریخچهٔ گفت‌وگو برای هر چت
+  جداگانه نگه داشته می‌شود. دستور `/reset` آن را پاک می‌کند.
+- **زنجیرهٔ مدل‌های جایگزین**: برای هر کار، فهرستی از مدل‌های Gemini به ترتیب امتحان
+  می‌شود؛ در صورت محدودیت نرخ درخواست یا خطای سرور، مدل بعدی جایگزین می‌شود تا کار
+  بی‌نتیجه نماند.
+- **تنظیم مدل برای هر کاربر**: با `/settings` هر کاربر می‌تواند مدل صوتی و متنی دلخواه
+  خود را انتخاب کند. مدیر علاوه بر این می‌تواند زنجیرهٔ پیش‌فرض مدل‌ها، فهرست کاربران
+  مجاز و کلید API را مدیریت کند و وضعیت سیستم را ببیند — همهٔ تغییرات بدون راه‌اندازی
+  مجدد اعمال می‌شوند.
+- **دستورهای دائمی**: هر کاربر می‌تواند دستورهای شخصی خودش را (حداکثر ۵۰۰ نویسه) تعیین
+  کند تا لحن و شیوهٔ نوشتن ربات را تغییر دهد — یکی برای پیش‌نویس پاسخ‌ها، یکی برای
+  گفت‌وگوی متنی و یکی برای خلاصه‌ها. اگر دستور مربوطه را بدون متن بفرستید، مقدار فعلی به
+  طور کامل نمایش داده می‌شود و می‌توانید با پاسخ دادن آن را تغییر دهید؛ اگر همراه با متن
+  بفرستید، مستقیماً تنظیم می‌شود. پاسخ دادن با واژهٔ `clear` آن را حذف می‌کند. این
+  دستورها بی‌درنگ اعمال می‌شوند، و دستور صوتیِ مخصوصِ یک پیام بر دستور دائمیِ پاسخ اولویت
+  دارد.
+- **ورودی از طریق پاسخ**: دکمه‌های منو و دستورهایی که به ورودی نیاز دارند، به جای اینکه
+  از شما بخواهند دستور را دوباره تایپ کنید، پیامی می‌فرستند که به آن پاسخ می‌دهید. هیچ
+  محدودیت زمانی وجود ندارد و پیامی که پاسخ به آن درخواست نباشد، هرگز به اشتباه به عنوان
+  ورودی برداشت نمی‌شود.
+- **معرفی دستورها**: دستورهای `/help` و `/start` فهرست دستورهای متناسب با نقش شما را
+  نشان می‌دهند. منوی «/» تلگرام هنگام راه‌اندازی پر می‌شود و دستورهای مدیریتی فقط در چت
+  مدیر دیده می‌شوند.
+
+## راه‌اندازی
+
+۱. با [@BotFather](https://t.me/BotFather) یک ربات بسازید و توکن آن را بگیرید.
+
+۲. از [Google AI Studio](https://aistudio.google.com/) یک کلید API برای Gemini بگیرید.
+
+۳. شناسهٔ عددی کاربری تلگرام خود را پیدا کنید (مثلاً با
+[@userinfobot](https://t.me/userinfobot)).
+
+۴. فایل `.env.example` را به `.env` کپی کنید و مقادیر `TELEGRAM_BOT_TOKEN`،
+`GEMINI_API_KEY` و `ALLOWED_USER_ID` را پر کنید. مقدار آخر فهرستی از شناسه‌ها با
+جداکنندهٔ ویرگول است و **اولین شناسه، مدیر** است که تنظیمات کلی را در اختیار دارد؛
+بقیه کاربران عادی هستند.
+
+۵. وابستگی‌ها را نصب کنید:
+
+```sh
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+```
+
+۶. برای آزمایش، مستقیم اجرا کنید:
+
+```sh
+venv/bin/python sedai_bot.py
+```
+
+## دستورها
+
+| دستور | چه کسی | کارکرد |
+|---|---|---|
+| `/help` | همهٔ کاربران مجاز | فهرست دستورها و نحوهٔ استفاده از ربات |
+| `/start` | همهٔ کاربران مجاز | مانند `/help`، در نخستین تماس نمایش داده می‌شود |
+| `/settings` | همهٔ کاربران مجاز | تنظیم مدل صوتی و متنی، و دیدن یا پاک کردن دستورهای دائمی |
+| `/replystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای پیش‌نویس پاسخ‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
+| `/chatstyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای گفت‌وگوی متنی؛ پاسخ با `clear` آن را حذف می‌کند |
+| `/summarystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای خلاصه‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
+| `/reset` | همهٔ کاربران مجاز | پاک کردن تاریخچهٔ گفت‌وگو |
+| `/setkey <کلید>` | فقط مدیر | به‌روزرسانی کلید API مربوط به Gemini |
+| `/adduser <شناسه>` | فقط مدیر | افزودن یک شناسهٔ کاربری تلگرام به فهرست مجاز |
+
+کاربران عادی دستورهای مدیریتی را در منوی «/» تلگرام خود نمی‌بینند.
+
+## اجرا به صورت سرویس systemd
+
+فایل `sedai-bot.service` یک نمونهٔ آماده است. مقادیر `WorkingDirectory`،
+`EnvironmentFile`، `ExecStart` و `User`/`Group` را متناسب با مسیر و کاربر خودتان تغییر
+دهید و سپس:
+
+```sh
+sudo cp sedai-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sedai-bot
+```
+
+## آزمون‌ها
+
+- **آزمون‌های آفلاین** (`tests/`): با اجرای `python3 tests/run_all.py` همهٔ مجموعه‌ها در
+  برابر نسخه‌های شبیه‌سازی‌شدهٔ تلگرام و Gemini اجرا می‌شوند. به اینترنت و کلید واقعی
+  نیازی ندارند و همه‌جا قابل اجرا هستند.
+- **آزمون دود** (`smoke_test.py`): این آزمون را با پایتونِ venv اجرا کنید تا کتابخانهٔ
+  واقعی `python-telegram-bot` آزموده شود — تجزیهٔ دستورها برای خط‌های غیرلاتین (فارسی)،
+  ایموجی، متن چندخطی و پسوند `@botname`، و همچنین فیلترهایی که سازوکار ورودی از طریق
+  پاسخ به آن‌ها متکی است. نسخه‌های شبیه‌سازی‌شده خودشان تطبیق دستورها را پیاده کرده‌اند و
+  به همین دلیل نمی‌توانند این موارد را پوشش دهند. این آزمون هم به اینترنت و کلید واقعی
+  نیاز ندارد.
+
+## نکته‌ها
+
+- تنها شناسه‌های موجود در `ALLOWED_USER_ID` می‌توانند از ربات استفاده کنند؛ پیام بقیه
+  بدون پاسخ نادیده گرفته می‌شود. اولین شناسهٔ فهرست، مدیر است.
+- فایل `.env` در `.gitignore` قرار دارد — هرگز توکن یا کلید واقعی را در مخزن ثبت نکنید.
+- فایل `settings.json` (که در نخستین اجرا کنار `.env` ساخته می‌شود و دسترسی آن ۶۰۰ است)
+  تنظیمات هر کاربر و تنظیمات کلی را نگه می‌دارد و بر مقادیر `.env` اولویت دارد. همین
+  موضوع باعث می‌شود پیکربندی بدون راه‌اندازی مجدد و بدون استقرار دوباره تغییر کند.
+- دستور `/setkey <کلید>`: ربات بی‌درنگ پیام حاوی کلید را حذف می‌کند و تنها یک اثر انگشت
+  کوتاه از کلید را در پاسخ نشان می‌دهد. با این حال کلید از سرورهای تلگرام عبور کرده است،
+  بنابراین بهتر است کلیدی تازه‌ساخته را وارد کنید و کلید قبلی را پس از آن باطل کنید.
+- دستور ناشناخته: کاربران مجاز پیام «Unknown command — try /help» را می‌گیرند و بقیه
+  نادیده گرفته می‌شوند.
+
+</div>

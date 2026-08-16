@@ -3,3 +3,5 @@ settings.json
 __pycache__/
 *.pyc
 venv/
+.claude/settings.local.json
+sedai-bot.service.local

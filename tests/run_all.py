@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 test_suites = [
+    "test_setup.py",
     "test_settings.py",
     "test_ui.py",
     "test_integration.py",

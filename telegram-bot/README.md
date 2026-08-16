@@ -39,6 +39,19 @@ ignored.
 
 ## Setup
 
+### Quick start
+
+```sh
+python3 telegram-bot/setup.py          # guided setup: prompts, validates, writes .env
+python3 telegram-bot/setup.py --check  # health check: verify an existing install
+```
+
+The setup script guides you through configuration, validates your keys, and writes `.env` atomically at mode 0600. It never echoes secrets and never runs `sudo`. See `AGENTS.md` for additional notes.
+
+### Manual setup
+
+If you prefer to configure by hand:
+
 1. Create a bot with [@BotFather](https://t.me/BotFather) and get its token.
 2. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/).
 3. Find your Telegram numeric user ID (e.g. via [@userinfobot](https://t.me/userinfobot)).
@@ -158,6 +171,23 @@ sudo systemctl enable --now sedai-bot
   مدیر دیده می‌شوند.
 
 ## راه‌اندازی
+
+### شروع سریع
+
+```sh
+python3 telegram-bot/setup.py          # راه‌اندازی گام‌به‌گام: پرسش، اعتبارسنجی، ساخت .env
+python3 telegram-bot/setup.py --check  # بررسی سلامت: وارسی یک نصب موجود
+```
+
+اسکریپت راه‌اندازی شما را گام‌به‌گام در پیکربندی همراهی می‌کند، درستی توکن ربات و کلید
+Gemini را پیش از ذخیره بررسی می‌کند و فایل `.env` را به‌صورت اتمی با دسترسی ۶۰۰
+می‌نویسد. این اسکریپت هرگز مقدار توکن یا کلید را نمایش نمی‌دهد و هرگز `sudo` اجرا
+نمی‌کند؛ دستورهای مربوط به systemd را فقط چاپ می‌کند تا خودتان اجرا کنید. برای
+مشارکت‌کنندگان، فایل `AGENTS.md` نکته‌های بیشتری دارد.
+
+### راه‌اندازی دستی
+
+اگر ترجیح می‌دهید پیکربندی را دستی انجام دهید:
 
 ۱. با [@BotFather](https://t.me/BotFather) یک ربات بسازید و توکن آن را بگیرید.
 

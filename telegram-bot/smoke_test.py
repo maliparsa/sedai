@@ -2,14 +2,14 @@
 """
 Smoke test against the REAL python-telegram-bot library.
 
-The offline suites in ../tests/ run against stubs that implement command matching
+The offline suites in tests/ run against stubs that implement command matching
 themselves, so they cannot catch bugs in Telegram's actual parser or in this project's
 use of the real API surface. This script closes that gap. It needs no network, no bot
 token, and no Gemini key.
 
 Run it with the deployed venv:
 
-    /opt/sedai-bot/telegram-bot/venv/bin/python smoke_test.py
+    venv/bin/python smoke_test.py
 """
 
 import sys

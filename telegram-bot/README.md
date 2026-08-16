@@ -98,7 +98,7 @@ sudo systemctl enable --now sedai-bot
 
 ## Testing
 
-- **Offline suites** (`tests/`): `python3 tests/run_all.py` runs every suite against
+- **Offline suites** (`telegram-bot/tests/`): `python3 telegram-bot/tests/run_all.py` runs every suite against
   Telegram and Gemini stubs. No network and no real credentials required, so they run
   anywhere.
 - **Smoke test** (`smoke_test.py`): run it with the venv python to exercise the real
@@ -244,7 +244,7 @@ sudo systemctl enable --now sedai-bot
 
 ## آزمون‌ها
 
-- **آزمون‌های آفلاین** (`tests/`): با اجرای `python3 tests/run_all.py` همهٔ مجموعه‌ها در
+- **آزمون‌های آفلاین** (`telegram-bot/tests/`): با اجرای `python3 telegram-bot/tests/run_all.py` همهٔ مجموعه‌ها در
   برابر نسخه‌های شبیه‌سازی‌شدهٔ تلگرام و Gemini اجرا می‌شوند. به اینترنت و کلید واقعی
   نیازی ندارند و همه‌جا قابل اجرا هستند.
 - **آزمون دود** (`smoke_test.py`): این آزمون را با پایتونِ venv اجرا کنید تا کتابخانهٔ

@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOT_DIR = os.path.join(os.path.dirname(HERE), "telegram-bot")
+BOT_DIR = os.path.dirname(HERE)
 STUBS = os.path.join(HERE, "stubs")
 
 ADMIN, USER, OTHER = 111, 222, 333

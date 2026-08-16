@@ -16,6 +16,8 @@ python3 test_ui.py
 python3 test_integration.py
 python3 test_help.py
 python3 test_styles.py
+python3 test_input_flow.py
+python3 test_setup.py
 ```
 
 ## How They Work
@@ -27,6 +29,8 @@ Each suite uses the `stubs/` directory, which provides mock implementations of T
 - **test_integration.py** (20 assertions): End-to-end verification that sedai_bot.py wires everything correctly, live settings apply without restart, and cross-chat privacy is maintained.
 - **test_help.py** (33 assertions): Confirms role-aware help, command registration order, the unknown-command fallback, and scoped command menus.
 - **test_styles.py** (77 assertions): Comprehensive check of standing instructions (reply, chat, summary styles), instruction isolation, and the per-user chat system prompts.
+- **test_input_flow.py** (30 assertions): Reply-based input collection — that a reply to a pending prompt is consumed exactly once, and that any other reply falls through to normal chat untouched, including cross-user and cross-chat isolation.
+- **test_setup.py** (54 assertions): `setup.py` and its `--check` doctor, with the network injected: `.env` writing and permissions, ID parsing, and that neither credential validator leaks its secret.
 
 **Total: 212 assertions**
 

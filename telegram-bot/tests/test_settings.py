@@ -10,7 +10,7 @@ import tempfile
 
 # Derive paths from __file__ so the suite runs from any checkout
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
-BOT_DIR = os.path.join(TEST_DIR, "..", "telegram-bot")
+BOT_DIR = os.path.dirname(TEST_DIR)
 STUBS = os.path.join(TEST_DIR, "stubs")
 
 GOOD = "good-key-aaaa1111"

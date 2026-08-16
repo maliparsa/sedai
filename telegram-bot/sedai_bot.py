@@ -23,6 +23,7 @@ from google.genai import types
 import settings
 import settings_ui
 import style_ui
+import input_flow
 import help_ui
 
 logging.basicConfig(level=logging.INFO)
@@ -320,6 +321,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))
     app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^(summarize|reply):\d+$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    input_flow.register(app)
     style_ui.register(app)
     help_ui.register(app)
     log.info("Bot started, polling.")

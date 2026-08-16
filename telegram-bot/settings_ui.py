@@ -14,6 +14,7 @@ from telegram.ext import (
 )
 
 import settings
+import input_flow
 
 log = logging.getLogger("sedai-bot")
 
@@ -103,30 +104,100 @@ async def _handle_my_instructions(update: Update, context: ContextTypes.DEFAULT_
     display_summary = _truncate_for_display(summary_style) if summary_style else "Not set."
 
     text = (
-        f"Reply: {display_reply}\n\n"
-        f"Chat: {display_chat}\n\n"
-        f"Summary: {display_summary}\n\n"
-        "To set or change instructions:\n"
-        "/replystyle <text>\n"
-        "/chatstyle <text>\n"
-        "/summarystyle <text>\n\n"
-        "Or /replystyle clear (and same for others) to clear."
+        f"Reply: {display_reply}\n"
+        f"Chat: {display_chat}\n"
+        f"Summary: {display_summary}"
     )
 
-    buttons = []
+    buttons = [
+        [
+            InlineKeyboardButton("View", callback_data="set:instr:reply"),
+            InlineKeyboardButton("Clear", callback_data="set:clear_reply") if reply_style else None,
+        ],
+        [
+            InlineKeyboardButton("View", callback_data="set:instr:chat"),
+            InlineKeyboardButton("Clear", callback_data="set:clear_chat") if chat_style else None,
+        ],
+        [
+            InlineKeyboardButton("View", callback_data="set:instr:summary"),
+            InlineKeyboardButton("Clear", callback_data="set:clear_summary") if summary_style else None,
+        ],
+    ]
 
-    # Add clear buttons for each kind that is set
-    if reply_style:
-        buttons.append([InlineKeyboardButton("Clear reply", callback_data="set:clear_reply")])
-    if chat_style:
-        buttons.append([InlineKeyboardButton("Clear chat", callback_data="set:clear_chat")])
-    if summary_style:
-        buttons.append([InlineKeyboardButton("Clear summary", callback_data="set:clear_summary")])
-
+    # Filter out rows with None buttons
+    buttons = [[btn for btn in row if btn is not None] for row in buttons]
     buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
 
     markup = InlineKeyboardMarkup(buttons)
     await query.edit_message_text(text, reply_markup=markup)
+
+
+async def _handle_instr_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
+    """Show full instruction with Set/Clear/Back buttons."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_allowed(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    styles = settings.user_styles(user_id)
+    value = styles.get(kind)
+
+    # Defensive truncation at ~3500 to stay well under Telegram's 4096-char message limit
+    if value and len(value) > 3500:
+        display_value = value[:3500] + "…"
+    else:
+        display_value = value if value else "Not set."
+
+    text = f"{kind.capitalize()} instruction:\n\n{display_value}"
+
+    buttons = [
+        [InlineKeyboardButton("Set", callback_data=f"set:instr_set_{kind}")],
+    ]
+
+    if value:
+        buttons.append([InlineKeyboardButton("Clear", callback_data=f"set:instr_clear_{kind}")])
+
+    buttons.append([InlineKeyboardButton("Back", callback_data="set:my_instructions")])
+
+    markup = InlineKeyboardMarkup(buttons)
+    await query.edit_message_text(text, reply_markup=markup)
+
+
+async def _handle_instr_set(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
+    """Initiate reply-based input for setting an instruction."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_allowed(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    prompt = f"Enter your {kind} instruction (or reply 'clear' to remove it)."
+    await input_flow.request(context.bot, update.effective_chat.id, user_id, f"style:{kind}", prompt)
+
+
+async def _handle_instr_clear(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
+    """Clear an instruction and return to detail view."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_allowed(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    settings.set_user_style(user_id, kind, None)
+    await query.answer(f"{kind.capitalize()} instruction cleared.", show_alert=False)
+
+    # Re-show the detail screen
+    await _handle_instr_detail(update, context, kind)
 
 
 async def _handle_clear_style(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
@@ -379,12 +450,27 @@ async def _handle_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             buttons.append([InlineKeyboardButton(f"Remove {uid}", callback_data=f"set:remove_user:{uid}")])
 
     text += "\n".join([f"{uid} {'(admin)' if uid == admin_id else ''}" for uid in allowed])
-    text += "\n\nTo add a user: /adduser <id>"
 
+    buttons.append([InlineKeyboardButton("Add user", callback_data="set:add_user")])
     buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
 
     markup = InlineKeyboardMarkup(buttons)
     await query.edit_message_text(text, reply_markup=markup)
+
+
+async def _handle_add_user_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initiate reply-based input for adding a user."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_admin(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    prompt = "Enter the Telegram user ID to add."
+    await input_flow.request(context.bot, update.effective_chat.id, user_id, "adduser", prompt)
 
 
 async def _handle_remove_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -437,17 +523,28 @@ async def _handle_api_key(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     await query.answer()
 
-    text = (
-        "To change the API key, send:\n\n"
-        "/setkey <new_key>\n\n"
-        "The message containing the key will be automatically deleted. "
-        "Do this in a private chat with the bot."
-    )
+    text = "To change the API key, use the button below."
     buttons = [
+        [InlineKeyboardButton("Set key", callback_data="set:set_key")],
         [InlineKeyboardButton("Back", callback_data="set:back")],
     ]
     markup = InlineKeyboardMarkup(buttons)
     await query.edit_message_text(text, reply_markup=markup)
+
+
+async def _handle_set_key_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initiate reply-based input for setting the API key."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_admin(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    prompt = "Reply with your new API key. Your reply will be deleted immediately."
+    await input_flow.request(context.bot, update.effective_chat.id, user_id, "setkey", prompt)
 
 
 async def _handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -513,6 +610,24 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_my_models(update, context)
     elif data == "set:my_instructions":
         await _handle_my_instructions(update, context)
+    elif data == "set:instr:reply":
+        await _handle_instr_detail(update, context, kind="reply")
+    elif data == "set:instr:chat":
+        await _handle_instr_detail(update, context, kind="chat")
+    elif data == "set:instr:summary":
+        await _handle_instr_detail(update, context, kind="summary")
+    elif data == "set:instr_set_reply":
+        await _handle_instr_set(update, context, kind="reply")
+    elif data == "set:instr_set_chat":
+        await _handle_instr_set(update, context, kind="chat")
+    elif data == "set:instr_set_summary":
+        await _handle_instr_set(update, context, kind="summary")
+    elif data == "set:instr_clear_reply":
+        await _handle_instr_clear(update, context, kind="reply")
+    elif data == "set:instr_clear_chat":
+        await _handle_instr_clear(update, context, kind="chat")
+    elif data == "set:instr_clear_summary":
+        await _handle_instr_clear(update, context, kind="summary")
     elif data == "set:default_models":
         await _handle_default_models(update, context)
     elif data == "set:my_audio":
@@ -543,10 +658,14 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_paginate_models(update, context, kind="text", is_default=is_default)
     elif data == "set:users":
         await _handle_users(update, context)
+    elif data == "set:add_user":
+        await _handle_add_user_prompt(update, context)
     elif data.startswith("set:remove_user:"):
         await _handle_remove_user(update, context)
     elif data == "set:api_key":
         await _handle_api_key(update, context)
+    elif data == "set:set_key":
+        await _handle_set_key_prompt(update, context)
     elif data == "set:status":
         await _handle_status(update, context)
     elif data == "set:clear_reply":
@@ -584,13 +703,12 @@ async def _handle_setkey(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     new_key = context.args[0]
 
     # Delete the message containing the key
-    deletion_failed = False
     try:
         await context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
     except Exception as e:
-        log.warning("Failed to delete message with key: %s", e)
+        # Log the type only: an API error body can echo back request material.
+        log.warning("Failed to delete message with key (%s)", type(e).__name__)
         await msg.reply_text("Failed to delete your message automatically. Please delete it manually.")
-        deletion_failed = True
 
     # Validate the key (continue even if deletion failed)
     try:
@@ -632,6 +750,67 @@ async def _handle_adduser(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.effective_message.reply_text(f"User {new_user_id} added.")
     else:
         await update.effective_message.reply_text(f"User {new_user_id} already in the list.")
+
+
+@input_flow.on("adduser")
+async def _on_adduser(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, meta) -> None:
+    """Consumer for reply-based adduser flow."""
+    user_id = update.effective_user.id
+
+    # Re-check authorization
+    if not settings.is_admin(user_id):
+        return
+
+    # Parse user ID
+    try:
+        new_user_id = int(text.strip())
+    except ValueError:
+        await update.effective_message.reply_text("Please enter a valid numeric user ID.")
+        return
+
+    # Add the user
+    if settings.add_user(new_user_id):
+        await update.effective_message.reply_text(f"User {new_user_id} added.")
+    else:
+        await update.effective_message.reply_text(f"User {new_user_id} is already in the list.")
+
+
+@input_flow.on("setkey")
+async def _on_setkey(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, meta) -> None:
+    """Consumer for reply-based setkey flow."""
+    user_id = update.effective_user.id
+
+    # Re-check authorization
+    if not settings.is_admin(user_id):
+        return
+
+    msg = update.effective_message
+
+    # Delete the message containing the key FIRST
+    try:
+        await context.bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
+    except Exception as e:
+        # Log the type only: an API error body can echo back request material.
+        log.warning("Failed to delete message with key (%s)", type(e).__name__)
+        await msg.reply_text("Failed to delete your message automatically. Please delete it manually.")
+
+    # Validate the key (continue even if deletion failed)
+    try:
+        settings.set_api_key(text)
+    except ValueError:
+        await msg.reply_text("That key was rejected by the Gemini API.")
+        return
+
+    # On success, show fingerprint and clear chat sessions
+    fingerprint = settings.api_key_fingerprint()
+    await msg.reply_text(
+        f"API key updated ({fingerprint}). Chat history cleared. "
+        f"Revoke the old key if it is no longer needed."
+    )
+
+    # Call the key change hook to clear chat sessions
+    if _on_key_change:
+        _on_key_change()
 
 
 def register(app: Application) -> None:

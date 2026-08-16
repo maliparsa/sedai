@@ -21,9 +21,15 @@ replies, and plain chat.
   key, and view status — all applied live without restart.
 - **Standing instructions**: each user can set per-user instructions (up to 500 chars)
   that shape how the bot writes for them — one for draft replies, one for plain chat,
-  one for summaries. Set via `/replystyle`, `/chatstyle`, `/summarystyle`; view or clear
-  via `/settings`. They apply live without restart, and can be overridden per-message
-  (voice-dictated reply instructions rank above the standing reply instruction).
+  one for summaries. Call a style command with no argument to see the current instruction
+  in full and send a reply to update it; call with text to set it inline. Reply with
+  exactly `clear` to remove an instruction. They apply live without restart, and can be
+  overridden per-message (voice-dictated reply instructions rank above the standing reply
+  instruction).
+- **Reply-based input**: menu buttons and no-argument commands that need user input now
+  send a prompt instead of telling you to retype a command. Simply reply to the prompt
+  with your input — there is no timeout and no risk of accidentally supplying text meant
+  for chat instead.
 - **Command discovery**: `/help` and `/start` list all available commands in role-aware
   format. The Telegram command menu (/) is populated at startup and shows only commands
   relevant to your role.
@@ -53,9 +59,9 @@ replies, and plain chat.
 | `/help` | all allowed users | lists available commands and how to use the bot |
 | `/start` | all allowed users | same as `/help`, shown on first contact |
 | `/settings` | all allowed users | configure your audio and text model preferences, or view/clear your standing instructions |
-| `/replystyle [text]` | all allowed users | set, view, or clear your standing instruction for draft replies; `/replystyle clear` to remove |
-| `/chatstyle [text]` | all allowed users | set, view, or clear your standing instruction for plain-text chat; `/chatstyle clear` to remove |
-| `/summarystyle [text]` | all allowed users | set, view, or clear your standing instruction for summaries; `/summarystyle clear` to remove |
+| `/replystyle [text]` | all allowed users | view your current standing instruction for draft replies, or set a new one (optionally inline); reply with `clear` to remove |
+| `/chatstyle [text]` | all allowed users | view your current standing instruction for plain-text chat, or set a new one (optionally inline); reply with `clear` to remove |
+| `/summarystyle [text]` | all allowed users | view your current standing instruction for summaries, or set a new one (optionally inline); reply with `clear` to remove |
 | `/reset` | all allowed users | clear your chat history |
 | `/setkey <key>` | admin only | update the Gemini API key |
 | `/adduser <id>` | admin only | allow another Telegram user ID |
@@ -73,6 +79,16 @@ sudo cp sedai-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now sedai-bot
 ```
+
+## Testing
+
+- **Offline test suites** (`tests/`): run `python3 tests/run_all.py` to execute the
+  offline tests against mock Telegram and Gemini stubs. These run anywhere with no
+  network or real credentials required.
+- **Smoke tests** (`smoke_test.py`): run `python3 smoke_test.py` (inside the venv on
+  the server) to test the real `python-telegram-bot` library. This covers command
+  parsing for non-ASCII scripts (e.g., Farsi) and Telegram message filters that the
+  offline stubs cannot fully emulate. Requires no network or real credentials.
 
 ## Notes
 

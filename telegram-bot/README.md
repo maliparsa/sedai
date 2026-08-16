@@ -16,6 +16,17 @@ replies, and plain chat.
   conversation per chat. `/reset` clears it.
 - **Model fallback**: each task tries a chain of Gemini models, falling back on
   rate limits or server errors instead of failing outright.
+- **Per-user model settings**: `/settings` lets any user choose their preferred audio
+  and text models. Admin can set default chains, manage the user list, update the API
+  key, and view status — all applied live without restart.
+- **Standing instructions**: each user can set per-user instructions (up to 500 chars)
+  that shape how the bot writes for them — one for draft replies, one for plain chat,
+  one for summaries. Set via `/replystyle`, `/chatstyle`, `/summarystyle`; view or clear
+  via `/settings`. They apply live without restart, and can be overridden per-message
+  (voice-dictated reply instructions rank above the standing reply instruction).
+- **Command discovery**: `/help` and `/start` list all available commands in role-aware
+  format. The Telegram command menu (/) is populated at startup and shows only commands
+  relevant to your role.
 
 ## Setup
 
@@ -23,7 +34,8 @@ replies, and plain chat.
 2. Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/).
 3. Find your Telegram numeric user ID (e.g. via [@userinfobot](https://t.me/userinfobot)).
 4. Copy `.env.example` to `.env` and fill in `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, and
-   `ALLOWED_USER_ID` (comma-separated for multiple users).
+   `ALLOWED_USER_ID` (comma-separated, with the **first** ID as the admin who can manage
+   global settings; additional IDs are regular users).
 5. Install dependencies:
    ```sh
    python3 -m venv venv
@@ -33,6 +45,22 @@ replies, and plain chat.
    ```sh
    venv/bin/python sedai_bot.py
    ```
+
+## Commands
+
+| Command | Who | What it does |
+|---|---|---|
+| `/help` | all allowed users | lists available commands and how to use the bot |
+| `/start` | all allowed users | same as `/help`, shown on first contact |
+| `/settings` | all allowed users | configure your audio and text model preferences, or view/clear your standing instructions |
+| `/replystyle [text]` | all allowed users | set, view, or clear your standing instruction for draft replies; `/replystyle clear` to remove |
+| `/chatstyle [text]` | all allowed users | set, view, or clear your standing instruction for plain-text chat; `/chatstyle clear` to remove |
+| `/summarystyle [text]` | all allowed users | set, view, or clear your standing instruction for summaries; `/summarystyle clear` to remove |
+| `/reset` | all allowed users | clear your chat history |
+| `/setkey <key>` | admin only | update the Gemini API key |
+| `/adduser <id>` | admin only | allow another Telegram user ID |
+
+Regular users do not see admin commands in their Telegram "/" command menu.
 
 ## Running as a systemd service
 
@@ -49,5 +77,17 @@ sudo systemctl enable --now sedai-bot
 ## Notes
 
 - Only the Telegram user IDs listed in `ALLOWED_USER_ID` can use the bot; everyone else
-  is silently ignored.
+  is silently ignored. The first ID in the list is the admin.
 - `.env` is gitignored — never commit real tokens/keys.
+- `settings.json` (created alongside `.env` on first run) persists per-user model
+  preferences and global settings at chmod 600. It overrides `.env` values where
+  present, allowing live configuration updates without restarting.
+- `/settings`: every allowed user can configure their own audio and text model choices.
+  The admin additionally manages default model chains, the allowed user list, the
+  Gemini API key, and views system status.
+- `/setkey <key>`: admin-only command to update the API key. The bot immediately
+  deletes the message containing the key and replies with a confirmation showing only
+  the fingerprint. The key still transits Telegram's servers, so this is intended for
+  freshly minted keys with plans to revoke the old one afterwards.
+- Unknown commands: allowed users receive "Unknown command — try /help". Non-allowed
+  users are silently ignored.

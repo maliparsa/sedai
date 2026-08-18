@@ -75,6 +75,7 @@ class Application:
         self.handlers = []
         self.handler_groups = {}
         self.post_init = None
+        self.error_handler = None
         from telegram import Bot
         self.bot = Bot()
 
@@ -83,6 +84,9 @@ class Application:
         # Track the group: real PTB runs lower groups first, and the reply-input handler
         # depends on sitting in group -1 ahead of the chat handler in group 0.
         self.handler_groups.setdefault(group, []).append(handler)
+
+    def add_error_handler(self, callback):
+        self.error_handler = callback
 
     def run_polling(self, **kwargs):
         raise RuntimeError("run_polling must not be called in tests")

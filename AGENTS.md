@@ -105,6 +105,19 @@ would silently discard any request for timestamps or speaker labels. It uses
 `TRANSCRIPT_STYLE_SECTION` instead, where the user's instruction wins. `tests/test_styles.py`
 asserts both the precedence wording and that the two sections are not swapped.
 
+### Failure Reporting
+
+Every path that can fail must tell the user something. `handle_voice` downloads inside a
+`try` and pre-checks `file_size` against `FileSizeLimit.FILESIZE_DOWNLOAD` (20 MB, a hard
+Bot API ceiling), and `main()` registers `handle_error` as a backstop. Without that
+backstop python-telegram-bot only logs the exception — the user is left with a typing
+indicator that never resolves, which is how an oversized file used to vanish.
+
+User-facing error text goes through `_user_error()`, which reports the exception type and
+status code only. Never interpolate an exception into a message or a reply: a provider
+error body can quote request material back. The error backstop follows the same silence
+rule as every handler — users who fail `is_allowed()` get no reply.
+
 ### Automatic Timestamps
 
 `settings.should_timestamp(user_id, duration)` decides whether a recording is long enough to

@@ -9,6 +9,7 @@ from collections import OrderedDict
 from io import BytesIO
 
 from telegram import CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import FileSizeLimit
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -34,6 +35,18 @@ logging.getLogger("httpx").setLevel(logging.WARNING)  # avoid leaking bot token 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 _FALLBACK_STATUS_CODES = {429, 500, 503}
+
+
+def _user_error(prefix: str, exc: Exception) -> str:
+    """A reportable message that never carries an API error body.
+
+    Interpolating the exception would put provider text — which can quote back request
+    material — into the chat. The type and any status code are enough to act on; the
+    full detail is in the log.
+    """
+    code = getattr(exc, "code", None)
+    detail = f"{type(exc).__name__}" + (f" {code}" if code else "")
+    return f"{prefix} ({detail}). It's logged — try again, or /help."
 
 
 def _generate_with_fallback(models: list[str], contents):
@@ -223,12 +236,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if voice_or_audio is None:
         return
 
+    # Telegram reports the size up front, so an oversized file can be refused with a useful
+    # message instead of a failed transfer. FILESIZE_DOWNLOAD is a hard Bot API ceiling on
+    # what any bot may download — it is not something a retry or a bigger server can beat.
+    file_size = getattr(voice_or_audio, "file_size", None)
+    if file_size and file_size > FileSizeLimit.FILESIZE_DOWNLOAD:
+        limit_mb = int(FileSizeLimit.FILESIZE_DOWNLOAD) / 1_000_000
+        log.warning("Refused oversized audio: %s bytes from user_id=%s", file_size, user.id)
+        await msg.reply_text(
+            f"That file is {file_size / 1_000_000:.0f} MB. Telegram only lets bots download "
+            f"up to {limit_mb:.0f} MB, so I can't fetch it.\n\n"
+            "A voice note of the same length is usually small enough, or send a "
+            "lower-bitrate copy or a shorter section."
+        )
+        return
+
     await msg.chat.send_action("typing")
 
-    tg_file = await context.bot.get_file(voice_or_audio.file_id)
-    buf = BytesIO()
-    await tg_file.download_to_memory(out=buf)
-    audio_bytes = buf.getvalue()
+    try:
+        tg_file = await context.bot.get_file(voice_or_audio.file_id)
+        buf = BytesIO()
+        await tg_file.download_to_memory(out=buf)
+        audio_bytes = buf.getvalue()
+    except Exception as e:
+        log.exception("Failed to download audio from Telegram")
+        await msg.reply_text(_user_error("Couldn't download that audio from Telegram", e))
+        return
 
     mime_type = "audio/ogg" if msg.voice else (voice_or_audio.mime_type or "audio/mpeg")
 
@@ -243,7 +276,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text = response.text.strip() if response.text else "(empty transcription)"
     except Exception as e:
         log.exception("Gemini transcription failed")
-        await msg.reply_text(f"Transcription failed: {e}")
+        await msg.reply_text(_user_error("Transcription failed", e))
         return
 
     # If this voice note is a reply to a transcript we know about, treat it as spoken
@@ -266,7 +299,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             draft = draft_response.text.strip() if draft_response.text else "(empty response)"
         except Exception as e:
             log.exception("Gemini instructed-reply request failed")
-            draft = f"Request failed: {e}"
+            draft = _user_error("Drafting that reply failed", e)
 
         await _send_chunks(
             context.bot, msg.chat_id, draft,
@@ -313,7 +346,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         result = response.text.strip() if response.text else "(empty response)"
     except Exception as e:
         log.exception("Gemini follow-up request failed")
-        result = f"Request failed: {e}"
+        result = _user_error("That request failed", e)
 
     keyboard = _copy_keyboard(result) if action == "reply" else None
     await _send_chunks(
@@ -338,7 +371,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         text = response.text.strip() if response.text else "(empty response)"
     except Exception as e:
         log.exception("Gemini chat request failed")
-        text = f"Request failed: {e}"
+        text = _user_error("That request failed", e)
 
     await _send_chunks(context.bot, msg.chat_id, text)
 
@@ -348,6 +381,29 @@ async def handle_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     CHATS.pop(update.effective_message.chat_id, None)
     await update.effective_message.reply_text("Conversation history cleared.")
+
+
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Backstop for anything a handler did not catch.
+
+    Without one, python-telegram-bot only logs the exception and the user is left with a
+    typing indicator that never resolves. Tell them something went wrong, without echoing
+    the exception, which may carry request material.
+    """
+    log.exception("Unhandled error while processing an update", exc_info=context.error)
+
+    msg = getattr(update, "effective_message", None)
+    user = getattr(update, "effective_user", None)
+    # Same silence rule as every other handler: strangers get no reply at all.
+    if msg is None or user is None or not settings.is_allowed(user.id):
+        return
+    try:
+        await msg.reply_text(
+            "Something went wrong handling that — it's been logged. Try again, or /help."
+        )
+    except Exception:
+        # The failure may be that we cannot talk to Telegram at all; never recurse.
+        log.exception("Could not deliver the error notice")
 
 
 def main() -> None:
@@ -362,6 +418,7 @@ def main() -> None:
     input_flow.register(app)
     style_ui.register(app)
     help_ui.register(app)
+    app.add_error_handler(handle_error)
     log.info("Bot started, polling.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

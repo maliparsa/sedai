@@ -319,6 +319,99 @@ async def main():
           settings.timestamp_threshold(USER) == 600, settings.timestamp_threshold(USER))
     settings.set_timestamp_threshold(ADMIN, None)
 
+    # ---------- oversized and failing downloads ----------
+    # These used to be silent: get_file ran outside the try block and no error handler was
+    # registered, so PTB logged the exception and the user got nothing at all.
+    from telegram.constants import FileSizeLimit
+    from telegram import Message, Update, Voice
+    from telegram.ext import _Ctx
+
+    async def send_sized(user_id, file_size, message_id=40, get_file=None):
+        telegram.ACTIONS.clear()
+        genai_stub.CALLS.clear()
+        ctx = _Ctx()
+        if get_file is not None:
+            ctx.bot.get_file = get_file
+        m = Message(message_id=message_id, chat_id=user_id, user_id=user_id)
+        m.voice = Voice(duration=60)
+        m.voice.file_size = file_size
+        # Catch rather than propagate: a handler that raises is the very regression under
+        # test here, and letting it abort the run would hide every check after this one.
+        try:
+            await sedai_bot.handle_voice(Update(message=m, user_id=user_id), ctx)
+        except Exception as exc:
+            return f"<handler raised {type(exc).__name__}>"
+        replies = [a for a in telegram.ACTIONS if a[0] in ("reply_text", "send_message")]
+        return " ".join(str(r[2]) for r in replies)
+
+    limit = int(FileSizeLimit.FILESIZE_DOWNLOAD)
+    out = await send_sized(USER, limit + 1, message_id=41)
+    check("oversized file is refused, not dropped",
+          out != "" and "handler raised" not in out, out[:120])
+    check("refusal names the limit", "20 MB" in out, out[:200])
+    check("refusal names the actual size", "MB" in out and "download" in out.lower(), out[:200])
+    check("oversized file never reaches Gemini",
+          not [c for c in genai_stub.CALLS if c[0] == "generate"], genai_stub.CALLS)
+
+    # Exactly at the limit is allowed: the ceiling is inclusive.
+    out = await send_sized(USER, limit, message_id=42)
+    check("a file exactly at the limit is still transcribed",
+          bool([c for c in genai_stub.CALLS if c[0] == "generate"]), out[:120])
+
+    # Telegram not reporting a size must not block the upload.
+    out = await send_sized(USER, None, message_id=43)
+    check("unknown file size is still attempted",
+          bool([c for c in genai_stub.CALLS if c[0] == "generate"]), out[:120])
+
+    async def boom(file_id):
+        raise RuntimeError("telegram is down: token 123:tg-token-secret in url")
+
+    out = await send_sized(USER, 1000, message_id=44, get_file=boom)
+    check("a failed download is reported, not raised",
+          out != "" and "handler raised" not in out, out[:120])
+    check("the download failure does not echo the exception text",
+          "tg-token-secret" not in out and "telegram is down" not in out, out[:200])
+    check("the download failure names the error type", "RuntimeError" in out, out[:200])
+
+    # An outsider must still get nothing, even on the failure paths.
+    out = await send_sized(OUTSIDER, limit + 1, message_id=45)
+    check("outsider gets no refusal message", out == "", out[:120])
+
+    # ---------- global error backstop ----------
+    check("an error handler is registered", app.error_handler is not None)
+
+    class _Err:
+        def __init__(self, msg, user):
+            self.effective_message = msg
+            self.effective_user = user
+
+    telegram.ACTIONS.clear()
+    em = Message(message_id=50, chat_id=USER, user_id=USER)
+    ctx = _Ctx()
+    ctx.error = RuntimeError("boom with 123:tg-token-secret inside")
+    if app.error_handler is None:
+        # Already reported above; skip the rest rather than aborting the whole suite.
+        async def _missing(update, context):
+            return
+        app.error_handler = _missing
+    await app.error_handler(_Err(em, telegram.User(USER)), ctx)
+    err_out = " ".join(str(a[2]) for a in telegram.ACTIONS
+                       if a[0] in ("reply_text", "send_message"))
+    check("the error handler tells the user something went wrong", err_out != "", err_out[:120])
+    check("the error handler does not echo the exception",
+          "tg-token-secret" not in err_out, err_out[:200])
+
+    telegram.ACTIONS.clear()
+    await app.error_handler(_Err(Message(message_id=51, chat_id=OUTSIDER, user_id=OUTSIDER),
+                                 telegram.User(OUTSIDER)), ctx)
+    check("the error handler stays silent for an outsider",
+          not [a for a in telegram.ACTIONS if a[0] in ("reply_text", "send_message")],
+          telegram.ACTIONS)
+
+    telegram.ACTIONS.clear()
+    await app.error_handler(_Err(None, telegram.User(USER)), ctx)
+    check("the error handler survives an update with no message", True)
+
     # ---------- chat system_instruction ----------
     from telegram import Message, Update
     from telegram.ext import _Ctx

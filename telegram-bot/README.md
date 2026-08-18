@@ -30,6 +30,10 @@ ignored.
   instruction in full and reply to update it; call it with text to set it inline. Reply
   with exactly `clear` to remove one. They apply live, and a voice-dictated per-message
   instruction outranks the standing reply instruction.
+- **Size limit reporting**: Telegram caps bot downloads at 20 MB, which for a forwarded
+  128 kbps MP3 is about 21 minutes. Files above that are refused with an explanation
+  instead of failing silently, and any other download or API failure is reported too —
+  never with the provider's raw error text, which can quote request material back.
 - **Automatic timestamps on long recordings**: anything longer than 10 minutes is
   transcribed as `[MM:SS]` caption cues of roughly 10-15 words, so you can find your place
   in it; shorter recordings are left as plain prose. The threshold is per-user and
@@ -176,6 +180,10 @@ sudo systemctl enable --now sedai-bot
   بفرستید، مستقیماً تنظیم می‌شود. پاسخ دادن با واژهٔ `clear` آن را حذف می‌کند. این
   دستورها بی‌درنگ اعمال می‌شوند، و دستور صوتیِ مخصوصِ یک پیام بر دستور دائمیِ پاسخ اولویت
   دارد.
+- **اعلام محدودیت حجم**: تلگرام حجم دانلود ربات‌ها را به ۲۰ مگابایت محدود می‌کند که برای
+  یک فایل MP3 با نرخ ۱۲۸ کیلوبیت بر ثانیه حدود ۲۱ دقیقه است. فایل‌های بزرگ‌تر با توضیح رد
+  می‌شوند، نه اینکه بی‌صدا از کار بیفتند؛ هر خطای دیگر در دانلود یا فراخوانی API هم به
+  کاربر گزارش می‌شود — بدون متن خام خطای سرویس، چون ممکن است بخشی از درخواست را بازتاب دهد.
 - **برچسب زمانی خودکار برای فایل‌های طولانی**: هر فایل صوتی بلندتر از ۱۰ دقیقه به صورت
   زیرنویس با برچسب `[MM:SS]` و قطعه‌های حدوداً ۱۰ تا ۱۵ کلمه‌ای رونویسی می‌شود تا بتوانید
   جای خود را در متن پیدا کنید؛ فایل‌های کوتاه‌تر به شکل متن ساده می‌مانند. این آستانه برای

@@ -240,7 +240,7 @@ def set_user_model(user_id: int, kind: str, model: str | None) -> None:
 
 
 # Standing instructions (styles)
-STYLE_KINDS = ("reply", "chat", "summary")
+STYLE_KINDS = ("reply", "chat", "summary", "transcript")
 STYLE_MAX_LEN = 500
 
 
@@ -256,7 +256,7 @@ def get_user_style(user_id: int, kind: str) -> str | None:
 
 
 def user_styles(user_id: int) -> dict:
-    """Get all standing instructions for a user: {"reply": ..., "chat": ..., "summary": ...}."""
+    """Get all standing instructions for a user, one entry per STYLE_KINDS kind."""
     if user_id not in _state["users"]:
         return {kind: None for kind in STYLE_KINDS}
     user = _state["users"][user_id]

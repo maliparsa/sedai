@@ -29,7 +29,10 @@ def _help_text_for_user(user_id: int) -> str:
         "Standing instructions shape how the bot writes for you:\n"
         "/replystyle — for draft replies\n"
         "/chatstyle — for chat\n"
-        "/summarystyle — for summaries\n\n"
+        "/summarystyle — for summaries\n"
+        "/transcriptstyle — for transcripts, e.g. \"add [MM:SS] timestamps\"\n"
+        "  (unlike the others this can change what a transcript says, not just how it\n"
+        "  reads — asking to tidy or shorten it costs you a verbatim record)\n\n"
         "/settings — choose your audio and text models\n"
         "/reset — clear your chat history\n"
         "/help — this message"
@@ -81,6 +84,7 @@ async def post_init(app: Application) -> None:
             BotCommand("replystyle", "Standing instructions for draft replies"),
             BotCommand("chatstyle", "Standing instructions for chat"),
             BotCommand("summarystyle", "Standing instructions for summaries"),
+            BotCommand("transcriptstyle", "Standing instructions for transcripts"),
             BotCommand("help", "Show this message"),
         ]
 

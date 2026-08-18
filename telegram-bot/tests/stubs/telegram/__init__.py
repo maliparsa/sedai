@@ -66,6 +66,32 @@ class Chat:
         ACTIONS.append(("send_action", action))
 
 
+class _File:
+    """What bot.get_file() returns: only download_to_memory is used by the bot."""
+
+    def __init__(self, file_id, data=b"fake-audio-bytes"):
+        self.file_id = file_id
+        self._data = data
+
+    async def download_to_memory(self, out=None):
+        out.write(self._data)
+        return out
+
+
+class Voice:
+    def __init__(self, file_id="voice-1", duration=3):
+        self.file_id = file_id
+        self.duration = duration
+        self.mime_type = "audio/ogg"
+
+
+class Audio:
+    def __init__(self, file_id="audio-1", duration=600, mime_type="audio/mpeg"):
+        self.file_id = file_id
+        self.duration = duration
+        self.mime_type = mime_type
+
+
 class Bot:
     # Set by tests to make setMyCommands fail, proving startup survives it.
     fail_set_my_commands = False
@@ -80,6 +106,10 @@ class Bot:
                            reply_markup=None, parse_mode=None):
         ACTIONS.append(("send_message", chat_id, text, reply_markup))
         return Message(message_id=9999, chat_id=chat_id, text=text)
+
+    async def get_file(self, file_id):
+        ACTIONS.append(("get_file", file_id))
+        return _File(file_id)
 
     async def delete_message(self, chat_id=None, message_id=None):
         ACTIONS.append(("delete_message", chat_id, message_id))

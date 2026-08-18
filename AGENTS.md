@@ -10,7 +10,7 @@ sedai/
 │   ├── sedai_bot.py              main event loop, handlers, CHATS/TRANSCRIPTS caches
 │   ├── settings.py               persistent config, per-user prefs, API key management
 │   ├── settings_ui.py            /settings menu and admin commands (model/user/key management)
-│   ├── style_ui.py               /replystyle, /chatstyle, /summarystyle (standing instructions)
+│   ├── style_ui.py               one /<kind>style command per settings.STYLE_KINDS
 │   ├── help_ui.py                /help, /start, command menu, unknown-command fallback
 │   ├── input_flow.py             reply-to-prompt input collection (ForceReply pattern)
 │   ├── smoke_test.py             offline test of python-telegram-bot integration
@@ -91,6 +91,19 @@ Refer to users by role only — "admin", "regular user" — never by personal re
 ### Telegram Library Version
 
 `python-telegram-bot >= 20.x`: `Message.bot` does not exist. Use `context.bot` instead.
+
+### Standing Instructions
+
+The set of standing-instruction kinds is `settings.STYLE_KINDS`. Adding a kind should mean
+editing that tuple and nothing else — `style_ui`, the `/settings` instructions screen, and
+its callback dispatch all iterate it. Keep it that way; don't reintroduce per-kind branches.
+
+`transcript` is the exception to how a standing instruction is applied. The other kinds go
+through `STYLE_SECTION`, which tells the model that a more specific instruction above wins.
+Transcription's own prompt demands verbatim output with no commentary, so that precedence
+would silently discard any request for timestamps or speaker labels. It uses
+`TRANSCRIPT_STYLE_SECTION` instead, where the user's instruction wins. `tests/test_styles.py`
+asserts both the precedence wording and that the two sections are not swapped.
 
 ### Model Handling
 

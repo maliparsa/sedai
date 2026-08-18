@@ -39,6 +39,22 @@ async def run_cmd(app, name, user_id, arg_text=""):
     return list(telegram.ACTIONS)
 
 
+async def send_voice(app, user_id, message_id=11, audio=False):
+    """Drive the transcription path end to end through handle_voice."""
+    import telegram
+    from telegram import Message, Update, Voice, Audio
+    from telegram.ext import _Ctx
+    import sedai_bot
+    telegram.ACTIONS.clear()
+    msg = Message(message_id=message_id, chat_id=user_id, user_id=user_id)
+    if audio:
+        msg.audio = Audio()
+    else:
+        msg.voice = Voice()
+    await sedai_bot.handle_voice(Update(message=msg, user_id=user_id), _Ctx())
+    return list(telegram.ACTIONS)
+
+
 async def press(app, data, user_id):
     import telegram
     from telegram import CallbackQuery, Update
@@ -70,6 +86,7 @@ async def main():
 
     import settings
     import sedai_bot
+    import style_ui
 
     captured = {}
 
@@ -85,8 +102,11 @@ async def main():
     app = captured["app"]
 
     # ---------- storage layer ----------
-    check("all three kinds start unset",
-          all(settings.get_user_style(USER, k) is None for k in ("reply", "chat", "summary")))
+    check("every declared kind starts unset",
+          all(settings.get_user_style(USER, k) is None for k in settings.STYLE_KINDS),
+          settings.STYLE_KINDS)
+    check("transcript is a declared kind", "transcript" in settings.STYLE_KINDS,
+          settings.STYLE_KINDS)
 
     settings.set_user_style(USER, "reply", "Be warm and brief.")
     settings.set_user_style(USER, "chat", "Answer like a terse engineer.")
@@ -95,8 +115,8 @@ async def main():
     check("kinds are independent",
           settings.get_user_style(USER, "chat") == "Answer like a terse engineer."
           and settings.get_user_style(USER, "summary") == "Use bullet points.")
-    check("user_styles returns all three",
-          set(settings.user_styles(USER)) == {"reply", "chat", "summary"},
+    check("user_styles returns exactly the declared kinds",
+          set(settings.user_styles(USER)) == set(settings.STYLE_KINDS),
           settings.user_styles(USER))
     check("other user unaffected", settings.get_user_style(ADMIN, "reply") is None)
 
@@ -197,6 +217,49 @@ async def main():
     check("unset user gets no STANDING INSTRUCTION section",
           all("STANDING INSTRUCTION" not in c[3] for c in gen), gen[:1])
 
+    # ---------- transcription ----------
+    # Transcription is the one task with a ground truth, so its section must give the
+    # user's instruction precedence over TRANSCRIBE_PROMPT's "verbatim, output only the
+    # transcription" — otherwise a timestamp request is silently a no-op.
+    settings.set_user_style(USER, "transcript", "Add [MM:SS] timestamps.")
+    genai_stub.CALLS.clear()
+    await send_voice(app, USER)
+    gen = [c for c in genai_stub.CALLS if c[0] == "generate"]
+    check("transcription happened", len(gen) >= 1, genai_stub.CALLS)
+    check("transcription used the transcript instruction",
+          any("Add [MM:SS] timestamps." in c[3] for c in gen), gen[:1])
+    check("transcript instruction is given precedence over the verbatim rule",
+          any("this instruction wins" in c[3] for c in gen), gen[:1])
+    check("transcript section does not carry the generic tone framing",
+          all("governs tone, register" not in c[3] for c in gen), gen[:1])
+    check("transcription did not leak the reply instruction",
+          not any("Be warm and brief." in c[3] for c in gen), gen[:1])
+    check("transcription did not leak the summary instruction",
+          not any("Use bullet points." in c[3] for c in gen), gen[:1])
+
+    # A forwarded audio file takes the same path as a voice note.
+    genai_stub.CALLS.clear()
+    await send_voice(app, USER, message_id=12, audio=True)
+    gen = [c for c in genai_stub.CALLS if c[0] == "generate"]
+    check("forwarded audio also uses the transcript instruction",
+          any("Add [MM:SS] timestamps." in c[3] for c in gen), gen[:1])
+
+    # The instruction must not bleed into the other tasks run on that transcript.
+    sedai_bot.TRANSCRIPTS[(USER, 5)] = "some transcript"
+    genai_stub.CALLS.clear()
+    await press(app, "summarize:5", USER)
+    gen = [c for c in genai_stub.CALLS if c[0] == "generate"]
+    check("summarize is unaffected by the transcript instruction",
+          not any("Add [MM:SS] timestamps." in c[3] for c in gen), gen[:1])
+
+    # A user with no transcript instruction gets the untouched verbatim prompt.
+    genai_stub.CALLS.clear()
+    await send_voice(app, ADMIN, message_id=13)
+    gen = [c for c in genai_stub.CALLS if c[0] == "generate"]
+    check("unset user gets no transcript instruction section",
+          all("STANDING INSTRUCTION" not in c[3] for c in gen), gen[:1])
+    settings.set_user_style(USER, "transcript", None)
+
     # ---------- chat system_instruction ----------
     from telegram import Message, Update
     from telegram.ext import _Ctx
@@ -246,7 +309,8 @@ async def main():
           all(c[3] != "Answer like a poet." for c in creates), creates)
 
     # ---------- commands ----------
-    for cmd, kind in (("replystyle", "reply"), ("chatstyle", "chat"), ("summarystyle", "summary")):
+    for kind in settings.STYLE_KINDS:
+        cmd = style_ui.command_name(kind)
         check(f"/{cmd} registered", app.command(cmd) is not None)
         settings.set_user_style(USER, kind, None)
 
@@ -303,13 +367,15 @@ async def main():
     admin_scoped = [c for c in calls if getattr(c[2], "kind", None) == "chat"]
     if base:
         check("style commands in the base / menu",
-              {"replystyle", "chatstyle", "summarystyle"}.issubset(set(base[0][1])), base[0][1])
+              {style_ui.command_name(k) for k in settings.STYLE_KINDS}.issubset(set(base[0][1])),
+              base[0][1])
     if admin_scoped:
         check("admin / menu keeps setkey and adduser",
               {"setkey", "adduser"}.issubset(set(admin_scoped[0][1])), admin_scoped[0][1])
     help_text = texts(await run_cmd(app, "help", USER))
-    check("help mentions the style commands",
-          all(c in help_text for c in ("/replystyle", "/chatstyle", "/summarystyle")), help_text[:300])
+    check("help mentions every style command",
+          all("/" + style_ui.command_name(k) in help_text for k in settings.STYLE_KINDS),
+          help_text[:400])
 
     # ---------- settings menu screen ----------
     telegram.ACTIONS.clear()

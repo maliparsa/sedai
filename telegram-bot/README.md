@@ -26,10 +26,18 @@ ignored.
   key, and view status — all applied live without a restart.
 - **Standing instructions**: each user can set their own instructions (up to 500
   characters) that shape how the bot writes for them — one for draft replies, one for
-  plain chat, one for summaries. Call a style command with no argument to see the current
+  plain chat, one for summaries, and one for transcripts. Call a style command with no argument to see the current
   instruction in full and reply to update it; call it with text to set it inline. Reply
   with exactly `clear` to remove one. They apply live, and a voice-dictated per-message
   instruction outranks the standing reply instruction.
+- **Transcript instructions**: `/transcriptstyle` shapes transcription itself — for
+  example `add [MM:SS] timestamps`, useful as closed-captioning on long forwarded audio.
+  It is the one standing instruction that overrides its task's defaults rather than
+  deferring to them, because transcription is otherwise pinned to verbatim output. That
+  cuts both ways: asking it to tidy, shorten, or translate changes what the transcript
+  says, not just how it reads, so a verbatim record is no longer guaranteed. Timestamps
+  are the model's own estimate from the audio, not forced alignment — close on short
+  notes, approximate on long recordings.
 - **Reply-based input**: menu buttons and no-argument commands that need input send a
   prompt you reply to, instead of telling you to retype a command. There is no timeout,
   and a message that isn't a reply to a prompt is never mistaken for one.
@@ -78,6 +86,7 @@ If you prefer to configure by hand:
 | `/replystyle [text]` | all allowed users | view your standing instruction for draft replies, or set a new one; reply with `clear` to remove |
 | `/chatstyle [text]` | all allowed users | view your standing instruction for plain chat, or set a new one; reply with `clear` to remove |
 | `/summarystyle [text]` | all allowed users | view your standing instruction for summaries, or set a new one; reply with `clear` to remove |
+| `/transcriptstyle [text]` | all allowed users | view your standing instruction for transcripts (e.g. `add [MM:SS] timestamps`), or set a new one; reply with `clear` to remove |
 | `/reset` | all allowed users | clear your chat history |
 | `/setkey <key>` | admin only | update the Gemini API key |
 | `/adduser <id>` | admin only | allow another Telegram user ID |
@@ -157,11 +166,18 @@ sudo systemctl enable --now sedai-bot
   مجدد اعمال می‌شوند.
 - **دستورهای دائمی**: هر کاربر می‌تواند دستورهای شخصی خودش را (حداکثر ۵۰۰ نویسه) تعیین
   کند تا لحن و شیوهٔ نوشتن ربات را تغییر دهد — یکی برای پیش‌نویس پاسخ‌ها، یکی برای
-  گفت‌وگوی متنی و یکی برای خلاصه‌ها. اگر دستور مربوطه را بدون متن بفرستید، مقدار فعلی به
+  گفت‌وگوی متنی، یکی برای خلاصه‌ها و یکی برای متن‌های رونویسی‌شده. اگر دستور مربوطه را بدون متن بفرستید، مقدار فعلی به
   طور کامل نمایش داده می‌شود و می‌توانید با پاسخ دادن آن را تغییر دهید؛ اگر همراه با متن
   بفرستید، مستقیماً تنظیم می‌شود. پاسخ دادن با واژهٔ `clear` آن را حذف می‌کند. این
   دستورها بی‌درنگ اعمال می‌شوند، و دستور صوتیِ مخصوصِ یک پیام بر دستور دائمیِ پاسخ اولویت
   دارد.
+- **دستور دائمی رونویسی**: دستور `/transcriptstyle` روی خودِ رونویسی اثر می‌گذارد — برای
+  نمونه «برچسب زمانی [MM:SS] اضافه کن»، که برای فایل‌های صوتی طولانی حکم زیرنویس را دارد.
+  این تنها دستور دائمی است که بر تنظیمات پیش‌فرضِ کارِ خودش اولویت دارد، چون در حالت عادی
+  رونویسی به خروجی واژه‌به‌واژه مقید است. همین موضوع دو رو دارد: اگر بخواهید متن را
+  مرتب، کوتاه یا ترجمه کند، محتوای رونویسی تغییر می‌کند نه فقط شکل آن، و دیگر
+  واژه‌به‌واژه بودنش تضمین نیست. برچسب‌های زمانی تخمین خودِ مدل از روی صداست، نه
+  هم‌ترازیِ دقیق — در پیام‌های کوتاه نزدیک و در فایل‌های طولانی تقریبی است.
 - **ورودی از طریق پاسخ**: دکمه‌های منو و دستورهایی که به ورودی نیاز دارند، به جای اینکه
   از شما بخواهند دستور را دوباره تایپ کنید، پیامی می‌فرستند که به آن پاسخ می‌دهید. هیچ
   محدودیت زمانی وجود ندارد و پیامی که پاسخ به آن درخواست نباشد، هرگز به اشتباه به عنوان
@@ -224,6 +240,7 @@ venv/bin/python sedai_bot.py
 | `/replystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای پیش‌نویس پاسخ‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/chatstyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای گفت‌وگوی متنی؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/summarystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای خلاصه‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
+| `/transcriptstyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای رونویسی (مثلاً «برچسب زمانی [MM:SS] اضافه کن»)؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/reset` | همهٔ کاربران مجاز | پاک کردن تاریخچهٔ گفت‌وگو |
 | `/setkey <کلید>` | فقط مدیر | به‌روزرسانی کلید API مربوط به Gemini |
 | `/adduser <شناسه>` | فقط مدیر | افزودن یک شناسهٔ کاربری تلگرام به فهرست مجاز |

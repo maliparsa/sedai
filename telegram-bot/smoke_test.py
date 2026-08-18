@@ -23,7 +23,7 @@ BOT_USERNAME = "sedaibot"
 REGISTERED_COMMANDS = [
     "reset", "settings", "setkey", "adduser",
     "help", "start",
-    "replystyle", "chatstyle", "summarystyle",
+    "replystyle", "chatstyle", "summarystyle", "transcriptstyle",
 ]
 
 results = []

@@ -1,5 +1,5 @@
 """
-Sedai standing instructions UI: per-user /replystyle, /chatstyle, /summarystyle commands.
+Sedai standing instructions UI: one per-user /<kind>style command per settings.STYLE_KINDS.
 """
 
 import logging
@@ -19,7 +19,7 @@ log = logging.getLogger("sedai-bot")
 
 
 async def _handle_style(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
-    """Handle standing instruction commands (reply, chat, summary)."""
+    """Handle standing instruction commands, one per settings.STYLE_KINDS kind."""
     user = update.effective_user
     if not user or not settings.is_allowed(user.id):
         return
@@ -91,26 +91,20 @@ def _make_style_consumer(kind: str) -> None:
                 )
 
 
-async def _handle_replystyle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _handle_style(update, context, "reply")
+def command_name(kind: str) -> str:
+    """The /command that sets the standing instruction for a kind."""
+    return f"{kind}style"
 
 
-async def _handle_chatstyle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _handle_style(update, context, "chat")
-
-
-async def _handle_summarystyle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _handle_style(update, context, "summary")
+def _make_style_handler(kind: str):
+    """Bind kind at definition time; a closure over the loop variable would see the last kind."""
+    async def _handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await _handle_style(update, context, kind)
+    return _handler
 
 
 def register(app: Application) -> None:
-    """Register the three standing instruction commands."""
-    # Register consumers for all three style kinds.
-    _make_style_consumer("reply")
-    _make_style_consumer("chat")
-    _make_style_consumer("summary")
-
-    # Register command handlers.
-    app.add_handler(CommandHandler("replystyle", _handle_replystyle))
-    app.add_handler(CommandHandler("chatstyle", _handle_chatstyle))
-    app.add_handler(CommandHandler("summarystyle", _handle_summarystyle))
+    """Register one standing instruction command per settings.STYLE_KINDS kind."""
+    for kind in settings.STYLE_KINDS:
+        _make_style_consumer(kind)
+        app.add_handler(CommandHandler(command_name(kind), _make_style_handler(kind)))

@@ -49,10 +49,10 @@ def _generate_with_fallback(models: list[str], contents):
     raise last_error
 
 
-def _with_style(prompt: str, style: str | None) -> str:
+def _with_style(prompt: str, style: str | None, section: str | None = None) -> str:
     if not style:
         return prompt
-    return prompt + "\n\n" + STYLE_SECTION.format(style=style)
+    return prompt + "\n\n" + (section or STYLE_SECTION).format(style=style)
 
 
 TRANSCRIBE_PROMPT = (
@@ -77,6 +77,20 @@ INSTRUCTED_REPLY_PROMPT = (
     "it should say. Write the reply in the same language and script as the ORIGINAL MESSAGE. "
     "Output only the reply text, no commentary, no preamble, no subject line.\n\n"
     "ORIGINAL MESSAGE:\n{original}\n\nINSTRUCTION:\n{instruction}"
+)
+
+# Transcription is the one task with a ground truth, so its standing instruction needs
+# the opposite precedence from the others: TRANSCRIBE_PROMPT's "verbatim, output only the
+# transcription" would otherwise override any request for timestamps or speaker labels,
+# and the instruction would silently do nothing.
+TRANSCRIPT_STYLE_SECTION = (
+    "STANDING INSTRUCTION FROM THE USER FOR TRANSCRIPTS:\n"
+    "{style}\n"
+    "Where this conflicts with the default output rules above, this instruction wins: if it "
+    "asks for timestamps, speaker labels, paragraph breaks, translation, or any other "
+    "formatting, provide them. Timestamps, when asked for, use [MM:SS] (or [HH:MM:SS] past "
+    "an hour) and mark where that passage begins in the audio. Never invent speech that is "
+    "not in the audio in order to satisfy this instruction."
 )
 
 STYLE_SECTION = (
@@ -199,7 +213,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             settings.audio_models(user.id),
             [
                 types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-                TRANSCRIBE_PROMPT,
+                _with_style(
+                    TRANSCRIBE_PROMPT,
+                    settings.get_user_style(user.id, "transcript"),
+                    TRANSCRIPT_STYLE_SECTION,
+                ),
             ],
         )
         text = response.text.strip() if response.text else "(empty transcription)"

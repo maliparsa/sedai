@@ -92,40 +92,22 @@ async def _handle_my_instructions(update: Update, context: ContextTypes.DEFAULT_
 
     await query.answer()
 
-    # Get all three standing instruction styles
     styles = settings.user_styles(user_id)
-    reply_style = styles.get("reply")
-    chat_style = styles.get("chat")
-    summary_style = styles.get("summary")
 
-    # Build the display text with truncated values
-    display_reply = _truncate_for_display(reply_style) if reply_style else "Not set."
-    display_chat = _truncate_for_display(chat_style) if chat_style else "Not set."
-    display_summary = _truncate_for_display(summary_style) if summary_style else "Not set."
+    lines = []
+    buttons = []
+    for kind in settings.STYLE_KINDS:
+        value = styles.get(kind)
+        display = _truncate_for_display(value) if value else "Not set."
+        lines.append(f"{kind.capitalize()}: {display}")
+        # Name the kind on the button: with one row per kind, bare "View" buttons are
+        # told apart only by position, which is guesswork on a narrow screen.
+        row = [InlineKeyboardButton(f"View {kind}", callback_data=f"set:instr:{kind}")]
+        if value:
+            row.append(InlineKeyboardButton("Clear", callback_data=f"set:clear_{kind}"))
+        buttons.append(row)
 
-    text = (
-        f"Reply: {display_reply}\n"
-        f"Chat: {display_chat}\n"
-        f"Summary: {display_summary}"
-    )
-
-    buttons = [
-        [
-            InlineKeyboardButton("View", callback_data="set:instr:reply"),
-            InlineKeyboardButton("Clear", callback_data="set:clear_reply") if reply_style else None,
-        ],
-        [
-            InlineKeyboardButton("View", callback_data="set:instr:chat"),
-            InlineKeyboardButton("Clear", callback_data="set:clear_chat") if chat_style else None,
-        ],
-        [
-            InlineKeyboardButton("View", callback_data="set:instr:summary"),
-            InlineKeyboardButton("Clear", callback_data="set:clear_summary") if summary_style else None,
-        ],
-    ]
-
-    # Filter out rows with None buttons
-    buttons = [[btn for btn in row if btn is not None] for row in buttons]
+    text = "\n".join(lines)
     buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
 
     markup = InlineKeyboardMarkup(buttons)
@@ -610,24 +592,12 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_my_models(update, context)
     elif data == "set:my_instructions":
         await _handle_my_instructions(update, context)
-    elif data == "set:instr:reply":
-        await _handle_instr_detail(update, context, kind="reply")
-    elif data == "set:instr:chat":
-        await _handle_instr_detail(update, context, kind="chat")
-    elif data == "set:instr:summary":
-        await _handle_instr_detail(update, context, kind="summary")
-    elif data == "set:instr_set_reply":
-        await _handle_instr_set(update, context, kind="reply")
-    elif data == "set:instr_set_chat":
-        await _handle_instr_set(update, context, kind="chat")
-    elif data == "set:instr_set_summary":
-        await _handle_instr_set(update, context, kind="summary")
-    elif data == "set:instr_clear_reply":
-        await _handle_instr_clear(update, context, kind="reply")
-    elif data == "set:instr_clear_chat":
-        await _handle_instr_clear(update, context, kind="chat")
-    elif data == "set:instr_clear_summary":
-        await _handle_instr_clear(update, context, kind="summary")
+    elif data.startswith("set:instr:") and data[len("set:instr:"):] in settings.STYLE_KINDS:
+        await _handle_instr_detail(update, context, kind=data[len("set:instr:"):])
+    elif data.startswith("set:instr_set_") and data[len("set:instr_set_"):] in settings.STYLE_KINDS:
+        await _handle_instr_set(update, context, kind=data[len("set:instr_set_"):])
+    elif data.startswith("set:instr_clear_") and data[len("set:instr_clear_"):] in settings.STYLE_KINDS:
+        await _handle_instr_clear(update, context, kind=data[len("set:instr_clear_"):])
     elif data == "set:default_models":
         await _handle_default_models(update, context)
     elif data == "set:my_audio":
@@ -668,12 +638,8 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_set_key_prompt(update, context)
     elif data == "set:status":
         await _handle_status(update, context)
-    elif data == "set:clear_reply":
-        await _handle_clear_style(update, context, kind="reply")
-    elif data == "set:clear_chat":
-        await _handle_clear_style(update, context, kind="chat")
-    elif data == "set:clear_summary":
-        await _handle_clear_style(update, context, kind="summary")
+    elif data.startswith("set:clear_") and data[len("set:clear_"):] in settings.STYLE_KINDS:
+        await _handle_clear_style(update, context, kind=data[len("set:clear_"):])
     elif data == "set:back":
         await _handle_back(update, context)
     elif data == "set:noop":

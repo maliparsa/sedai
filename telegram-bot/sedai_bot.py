@@ -55,6 +55,18 @@ def _with_style(prompt: str, style: str | None, section: str | None = None) -> s
     return prompt + "\n\n" + (section or STYLE_SECTION).format(style=style)
 
 
+def _transcribe_prompt_for(user_id: int, duration: int | None) -> str:
+    """Assemble the transcription prompt for this user and recording length."""
+    prompt = TRANSCRIBE_PROMPT
+    if settings.should_timestamp(user_id, duration):
+        prompt += AUTO_TIMESTAMP_CLAUSE
+    return _with_style(
+        prompt,
+        settings.get_user_style(user_id, "transcript"),
+        TRANSCRIPT_STYLE_SECTION,
+    )
+
+
 TRANSCRIBE_PROMPT = (
     "Transcribe the spoken audio verbatim, in whatever language it is spoken in, "
     "using that language's native script. Output only the transcription, no commentary, "
@@ -83,6 +95,18 @@ INSTRUCTED_REPLY_PROMPT = (
 # the opposite precedence from the others: TRANSCRIBE_PROMPT's "verbatim, output only the
 # transcription" would otherwise override any request for timestamps or speaker labels,
 # and the instruction would silently do nothing.
+# Appended to TRANSCRIBE_PROMPT for recordings past the user's threshold. It sits ABOVE the
+# standing instruction so TRANSCRIPT_STYLE_SECTION's "this instruction wins" precedence lets
+# an explicit /transcriptstyle override it — otherwise the two would contradict each other
+# with no defined winner. Cue length is stated in words because asking for sentences gives
+# wildly uneven cues on unscripted speech.
+AUTO_TIMESTAMP_CLAUSE = (
+    "\n\nThis is a long recording, so present the transcript as caption cues: break it into "
+    "chunks of roughly 10 to 15 words, each on its own line, beginning with a [MM:SS] "
+    "timestamp (use [HH:MM:SS] past one hour) marking where that chunk starts in the audio. "
+    "Split the speech only — never reword, merge, or summarise it."
+)
+
 TRANSCRIPT_STYLE_SECTION = (
     "STANDING INSTRUCTION FROM THE USER FOR TRANSCRIPTS:\n"
     "{style}\n"
@@ -213,11 +237,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             settings.audio_models(user.id),
             [
                 types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-                _with_style(
-                    TRANSCRIBE_PROMPT,
-                    settings.get_user_style(user.id, "transcript"),
-                    TRANSCRIPT_STYLE_SECTION,
-                ),
+                _transcribe_prompt_for(user.id, getattr(voice_or_audio, "duration", None)),
             ],
         )
         text = response.text.strip() if response.text else "(empty transcription)"

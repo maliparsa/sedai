@@ -30,6 +30,11 @@ ignored.
   instruction in full and reply to update it; call it with text to set it inline. Reply
   with exactly `clear` to remove one. They apply live, and a voice-dictated per-message
   instruction outranks the standing reply instruction.
+- **Automatic timestamps on long recordings**: anything longer than 10 minutes is
+  transcribed as `[MM:SS]` caption cues of roughly 10-15 words, so you can find your place
+  in it; shorter recordings are left as plain prose. The threshold is per-user and
+  adjustable under `/settings` (5 min to 1 hour, or off). A `/transcriptstyle` instruction
+  of your own takes precedence over it.
 - **Transcript instructions**: `/transcriptstyle` shapes transcription itself — for
   example `add [MM:SS] timestamps`, useful as closed-captioning on long forwarded audio.
   It is the one standing instruction that overrides its task's defaults rather than
@@ -171,6 +176,11 @@ sudo systemctl enable --now sedai-bot
   بفرستید، مستقیماً تنظیم می‌شود. پاسخ دادن با واژهٔ `clear` آن را حذف می‌کند. این
   دستورها بی‌درنگ اعمال می‌شوند، و دستور صوتیِ مخصوصِ یک پیام بر دستور دائمیِ پاسخ اولویت
   دارد.
+- **برچسب زمانی خودکار برای فایل‌های طولانی**: هر فایل صوتی بلندتر از ۱۰ دقیقه به صورت
+  زیرنویس با برچسب `[MM:SS]` و قطعه‌های حدوداً ۱۰ تا ۱۵ کلمه‌ای رونویسی می‌شود تا بتوانید
+  جای خود را در متن پیدا کنید؛ فایل‌های کوتاه‌تر به شکل متن ساده می‌مانند. این آستانه برای
+  هر کاربر جداگانه است و در `/settings` قابل تنظیم (از ۵ دقیقه تا ۱ ساعت، یا خاموش) است.
+  اگر خودتان دستور `/transcriptstyle` تنظیم کرده باشید، آن دستور اولویت دارد.
 - **دستور دائمی رونویسی**: دستور `/transcriptstyle` روی خودِ رونویسی اثر می‌گذارد — برای
   نمونه «برچسب زمانی [MM:SS] اضافه کن»، که برای فایل‌های صوتی طولانی حکم زیرنویس را دارد.
   این تنها دستور دائمی است که بر تنظیمات پیش‌فرضِ کارِ خودش اولویت دارد، چون در حالت عادی

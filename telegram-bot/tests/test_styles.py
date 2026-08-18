@@ -39,7 +39,7 @@ async def run_cmd(app, name, user_id, arg_text=""):
     return list(telegram.ACTIONS)
 
 
-async def send_voice(app, user_id, message_id=11, audio=False):
+async def send_voice(app, user_id, message_id=11, audio=False, duration=3):
     """Drive the transcription path end to end through handle_voice."""
     import telegram
     from telegram import Message, Update, Voice, Audio
@@ -48,9 +48,9 @@ async def send_voice(app, user_id, message_id=11, audio=False):
     telegram.ACTIONS.clear()
     msg = Message(message_id=message_id, chat_id=user_id, user_id=user_id)
     if audio:
-        msg.audio = Audio()
+        msg.audio = Audio(duration=duration)
     else:
-        msg.voice = Voice()
+        msg.voice = Voice(duration=duration)
     await sedai_bot.handle_voice(Update(message=msg, user_id=user_id), _Ctx())
     return list(telegram.ACTIONS)
 
@@ -260,6 +260,65 @@ async def main():
           all("STANDING INSTRUCTION" not in c[3] for c in gen), gen[:1])
     settings.set_user_style(USER, "transcript", None)
 
+    # ---------- automatic timestamps on long recordings ----------
+    CUE = "caption cues"
+
+    async def prompt_for(user_id, duration, **kw):
+        genai_stub.CALLS.clear()
+        await send_voice(app, user_id, duration=duration, **kw)
+        gen = [c for c in genai_stub.CALLS if c[0] == "generate"]
+        return gen[0][3] if gen else ""
+
+    check("default threshold is 10 minutes",
+          settings.TIMESTAMP_THRESHOLD_DEFAULT == 600, settings.TIMESTAMP_THRESHOLD_DEFAULT)
+    check("a fresh user gets the default threshold",
+          settings.timestamp_threshold(USER) == 600, settings.timestamp_threshold(USER))
+
+    # Boundary: the threshold is inclusive, so exactly 600s must timestamp.
+    check("just under the threshold stays plain",
+          CUE not in await prompt_for(USER, 599, message_id=21))
+    check("exactly at the threshold timestamps",
+          CUE in await prompt_for(USER, 600, message_id=22))
+    check("well over the threshold timestamps",
+          CUE in await prompt_for(USER, 3600, message_id=23))
+    check("a short voice note is untouched",
+          CUE not in await prompt_for(USER, 3, message_id=24))
+    check("a long forwarded audio file timestamps too",
+          CUE in await prompt_for(USER, 1200, message_id=25, audio=True))
+
+    # Missing duration must not be read as "infinitely long".
+    check("unknown duration does not trigger timestamps",
+          CUE not in await prompt_for(USER, None, message_id=26))
+
+    settings.set_timestamp_threshold(USER, 0)
+    check("threshold 0 disables it entirely",
+          CUE not in await prompt_for(USER, 7200, message_id=27))
+    check("0 is kept, not treated as unset",
+          settings.timestamp_threshold(USER) == 0, settings.timestamp_threshold(USER))
+
+    settings.set_timestamp_threshold(USER, 300)
+    check("a custom threshold is honoured",
+          CUE in await prompt_for(USER, 400, message_id=28))
+    check("another user keeps the default threshold",
+          settings.timestamp_threshold(ADMIN) == 600, settings.timestamp_threshold(ADMIN))
+    check("another user is unaffected by the first user's threshold",
+          CUE not in await prompt_for(ADMIN, 400, message_id=29))
+
+    # The two mechanisms must coexist: the standing instruction is appended after the
+    # automatic clause so its "this instruction wins" precedence resolves any conflict.
+    settings.set_user_style(USER, "transcript", "Translate everything to English.")
+    p = await prompt_for(USER, 1200, message_id=30)
+    check("automatic clause and standing instruction both present",
+          CUE in p and "Translate everything to English." in p, p[-200:])
+    check("standing instruction comes after the automatic clause",
+          p.index("Translate everything to English.") > p.index(CUE))
+    settings.set_user_style(USER, "transcript", None)
+
+    settings.set_timestamp_threshold(USER, None)
+    check("None restores the default threshold",
+          settings.timestamp_threshold(USER) == 600, settings.timestamp_threshold(USER))
+    settings.set_timestamp_threshold(ADMIN, None)
+
     # ---------- chat system_instruction ----------
     from telegram import Message, Update
     from telegram.ext import _Ctx
@@ -384,6 +443,52 @@ async def main():
     root_cbs = [b.callback_data for kb in kbs for b in kb.buttons()]
     check("My instructions on the root menu for a regular user",
           any("instruction" in (c or "") for c in root_cbs), root_cbs)
+
+    check("timestamps entry on the root menu for a regular user",
+          "set:timestamps" in root_cbs, root_cbs)
+
+    acts, ts_kbs = await press(app, "set:timestamps", USER)
+    ts_body = texts(acts)
+    check("timestamps screen renders", ts_body != "")
+    check("timestamps screen names the current state",
+          "10 min" in ts_body or "Off" in ts_body, ts_body[:200])
+    ts_cbs = [b.callback_data for kb in ts_kbs for b in kb.buttons()]
+    check("every offered threshold has a button",
+          all(f"set:ts:{c}" in ts_cbs for c in settings.TIMESTAMP_THRESHOLD_CHOICES), ts_cbs)
+
+    await press(app, "set:ts:1800", USER)
+    check("pressing a threshold persists it",
+          settings.timestamp_threshold(USER) == 1800, settings.timestamp_threshold(USER))
+    await press(app, "set:ts:0", USER)
+    check("pressing Off persists 0", settings.timestamp_threshold(USER) == 0,
+          settings.timestamp_threshold(USER))
+
+    # A callback payload is attacker-supplied; only menu values may be honoured.
+    await press(app, "set:ts:7", USER)
+    check("an unoffered threshold value is ignored",
+          settings.timestamp_threshold(USER) == 0, settings.timestamp_threshold(USER))
+    await press(app, "set:ts:abc", USER)
+    check("a non-numeric threshold payload is ignored",
+          settings.timestamp_threshold(USER) == 0, settings.timestamp_threshold(USER))
+
+    await press(app, "set:ts:1800", OUTSIDER)
+    check("outsider's press stored nothing",
+          settings.timestamp_threshold(OUTSIDER) == settings.TIMESTAMP_THRESHOLD_DEFAULT
+          and OUTSIDER not in settings._state["users"],
+          list(settings._state["users"]))
+
+    # The threshold must survive a restart, not just live in memory.
+    settings.set_timestamp_threshold(USER, 1800)
+    importlib.reload(settings)
+    settings.load()
+    check("threshold survives a reload from disk",
+          settings.timestamp_threshold(USER) == 1800, settings.timestamp_threshold(USER))
+    settings.set_timestamp_threshold(USER, 0)
+    importlib.reload(settings)
+    settings.load()
+    check("a disabled threshold survives a reload as 0",
+          settings.timestamp_threshold(USER) == 0, settings.timestamp_threshold(USER))
+    settings.set_timestamp_threshold(USER, None)
 
     settings.set_user_style(USER, "reply", "L" * 200)
     inst_cb = next((c for c in root_cbs if "instruction" in (c or "")), None)

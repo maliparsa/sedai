@@ -51,6 +51,10 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     # "My instructions" — available to all allowed users
     buttons.append([InlineKeyboardButton("My instructions", callback_data="set:my_instructions")])
 
+    # "Transcript timestamps" — available to all allowed users
+    buttons.append([InlineKeyboardButton("Transcript timestamps",
+                                         callback_data="set:timestamps")])
+
     # Admin-only options
     if is_admin:
         buttons.append([InlineKeyboardButton("Default models", callback_data="set:default_models")])
@@ -112,6 +116,74 @@ async def _handle_my_instructions(update: Update, context: ContextTypes.DEFAULT_
 
     markup = InlineKeyboardMarkup(buttons)
     await query.edit_message_text(text, reply_markup=markup)
+
+
+def _format_threshold(seconds: int) -> str:
+    if seconds <= 0:
+        return "Off"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600} hr"
+    return f"{seconds // 60} min"
+
+
+async def _handle_timestamps(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Choose the recording length above which transcripts get [MM:SS] cues."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_allowed(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    current = settings.timestamp_threshold(user_id)
+    if current <= 0:
+        state = "Off — transcripts are never timestamped."
+    else:
+        state = f"On for recordings longer than {_format_threshold(current)}."
+
+    text = (
+        "Automatic transcript timestamps\n\n"
+        f"{state}\n\n"
+        "Long recordings are transcribed as [MM:SS] caption cues so you can find your "
+        "place. Shorter ones are left as plain text. Your own /transcriptstyle "
+        "instruction, if you have set one, takes precedence over this."
+    )
+
+    buttons = []
+    row = []
+    for choice in settings.TIMESTAMP_THRESHOLD_CHOICES:
+        label = _format_threshold(choice)
+        if choice == current:
+            label = f"• {label}"
+        row.append(InlineKeyboardButton(label, callback_data=f"set:ts:{choice}"))
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _handle_set_timestamps(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                 seconds: int) -> None:
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_allowed(user_id):
+        await query.answer()
+        return
+
+    settings.set_timestamp_threshold(user_id, seconds)
+    await query.answer(
+        "Timestamps off." if seconds <= 0
+        else f"Timestamps on above {_format_threshold(seconds)}.",
+        show_alert=False,
+    )
+    await _handle_timestamps(update, context)
 
 
 async def _handle_instr_detail(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
@@ -590,6 +662,15 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     if data == "set:my_models":
         await _handle_my_models(update, context)
+    elif data == "set:timestamps":
+        await _handle_timestamps(update, context)
+    elif data.startswith("set:ts:"):
+        raw = data[len("set:ts:"):]
+        # Only honour values the menu actually offers, never an arbitrary callback payload.
+        if raw.isdigit() and int(raw) in settings.TIMESTAMP_THRESHOLD_CHOICES:
+            await _handle_set_timestamps(update, context, int(raw))
+        else:
+            await query.answer()
     elif data == "set:my_instructions":
         await _handle_my_instructions(update, context)
     elif data.startswith("set:instr:") and data[len("set:instr:"):] in settings.STYLE_KINDS:

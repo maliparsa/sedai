@@ -24,6 +24,8 @@ def _help_text_for_user(user_id: int) -> str:
 
     text = (
         "Send a voice note or audio file to get a transcript, with Summarize and Draft reply buttons.\n\n"
+        "Recordings longer than 10 minutes are transcribed as [MM:SS] caption cues so you\n"
+        "can find your place. Change or switch that off under /settings.\n\n"
         "Reply to a transcript with a voice note to dictate instructions for a reply.\n\n"
         "Any text message is a chat with Gemini.\n\n"
         "Standing instructions shape how the bot writes for you:\n"

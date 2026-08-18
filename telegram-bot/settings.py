@@ -239,6 +239,42 @@ def set_user_model(user_id: int, kind: str, model: str | None) -> None:
     _persist_settings()
 
 
+# Automatic timestamping of long recordings
+# 0 disables it; the default only fires on recordings long enough that finding your place
+# in the transcript is the actual problem, so ordinary voice notes are untouched.
+TIMESTAMP_THRESHOLD_DEFAULT = 600  # seconds
+TIMESTAMP_THRESHOLD_CHOICES = (0, 300, 600, 900, 1800, 3600)
+
+
+def timestamp_threshold(user_id: int | None = None) -> int:
+    """Seconds of audio above which transcripts are auto-timestamped. 0 means never."""
+    if user_id is None or user_id not in _state["users"]:
+        return TIMESTAMP_THRESHOLD_DEFAULT
+    value = _state["users"][user_id].get("timestamp_threshold")
+    # Distinguish "not configured" from a deliberate 0, which means off.
+    return TIMESTAMP_THRESHOLD_DEFAULT if value is None else int(value)
+
+
+def set_timestamp_threshold(user_id: int, seconds: int | None) -> None:
+    """Set the per-user auto-timestamp threshold. None restores the default, 0 disables."""
+    if seconds is not None:
+        seconds = int(seconds)
+        if seconds < 0:
+            raise ValueError("threshold must be >= 0")
+    if user_id not in _state["users"]:
+        _state["users"][user_id] = {"audio_model": None, "text_model": None}
+    _state["users"][user_id]["timestamp_threshold"] = seconds
+    _persist_settings()
+
+
+def should_timestamp(user_id: int | None, duration_seconds: int | None) -> bool:
+    """Whether a recording of this length should be transcribed with timestamps."""
+    threshold = timestamp_threshold(user_id)
+    if threshold <= 0 or not duration_seconds:
+        return False
+    return duration_seconds >= threshold
+
+
 # Standing instructions (styles)
 STYLE_KINDS = ("reply", "chat", "summary", "transcript")
 STYLE_MAX_LEN = 500

@@ -105,6 +105,21 @@ would silently discard any request for timestamps or speaker labels. It uses
 `TRANSCRIPT_STYLE_SECTION` instead, where the user's instruction wins. `tests/test_styles.py`
 asserts both the precedence wording and that the two sections are not swapped.
 
+### Automatic Timestamps
+
+`settings.should_timestamp(user_id, duration)` decides whether a recording is long enough to
+transcribe as caption cues; the threshold is per-user, defaults to
+`TIMESTAMP_THRESHOLD_DEFAULT`, and 0 means off. Read it with `timestamp_threshold()`, which
+distinguishes an unset value from a deliberate 0 — a truthiness check silently re-enables
+timestamps for a user who turned them off.
+
+`sedai_bot._transcribe_prompt_for()` appends `AUTO_TIMESTAMP_CLAUSE` *before* applying the
+standing instruction, so `TRANSCRIPT_STYLE_SECTION`'s precedence lets an explicit
+`/transcriptstyle` override the automatic behaviour. Keep that order.
+
+The `set:ts:<seconds>` callback validates against `TIMESTAMP_THRESHOLD_CHOICES`; callback
+data is user-supplied and must never be trusted as an arbitrary integer.
+
 ### Model Handling
 
 Model names are fetched live from the Gemini API via `settings.available_models()` so deprecated model names are self-service to update — prefer the `-latest` aliases where possible (e.g., `gemini-flash-latest` over `gemini-3.5-flash`).

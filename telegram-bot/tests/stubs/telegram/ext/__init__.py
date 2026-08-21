@@ -64,6 +64,8 @@ class _Filters:
     REPLY = _Filter("REPLY")
     VOICE = _Filter("VOICE")
     AUDIO = _Filter("AUDIO")
+    PHOTO = _Filter("PHOTO")
+    Document = type("Document", (), {"IMAGE": _Filter("DOC_IMAGE")})
     ChatType = type("ChatType", (), {"PRIVATE": _Filter("PRIVATE")})
 
 

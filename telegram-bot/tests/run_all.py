@@ -12,6 +12,7 @@ test_suites = [
     "test_help.py",
     "test_styles.py",
     "test_input_flow.py",
+    "test_images.py",
 ]
 
 def main():

@@ -1,6 +1,6 @@
 # Sedai — Instruction File for Coding Agents
 
-Sedai is a personal Telegram bot backed by Google Gemini. It transcribes voice notes in any language, summarizes messages, drafts replies, and runs plain-text AI chat per user. All configuration is live-updatable without restart.
+Sedai is a personal Telegram bot backed by Google Gemini. It transcribes voice notes in any language, summarizes messages, drafts replies, edits images from a photo plus an instruction, and runs plain-text AI chat per user. All configuration is live-updatable without restart.
 
 ## Project Layout
 
@@ -13,6 +13,8 @@ sedai/
 │   ├── style_ui.py               one /<kind>style command per settings.STYLE_KINDS
 │   ├── help_ui.py                /help, /start, command menu, unknown-command fallback
 │   ├── input_flow.py             reply-to-prompt input collection (ForceReply pattern)
+│   ├── image_ui.py               photo + instruction -> edited image, monthly spend metering
+│   ├── common.py                 helpers shared across modules (user_error)
 │   ├── smoke_test.py             offline test of python-telegram-bot integration
 │   ├── requirements.txt           pinned deps: python-telegram-bot==22.8, google-genai==2.17.0
 │   ├── .env.example              template (real .env is gitignored, mode 0600)
@@ -27,6 +29,7 @@ sedai/
 │       ├── test_help.py          role-aware help text, command menu
 │       ├── test_styles.py        standing instructions, per-user chat
 │       ├── test_input_flow.py    reply-based input: fall-through, cross-user isolation
+│       ├── test_images.py        image edit flows, budget enforcement, failure modes
 │       ├── test_setup.py         setup.py and its --check doctor
 │       └── stubs/                mock Telegram and Gemini APIs (no real network)
 └── AGENTS.md (this file)
@@ -78,9 +81,20 @@ Never log raw API exception text; log the exception type or status code only. An
 
 `CHATS` (plain-text chat sessions) is keyed by `chat_id` only, because private chats have `chat_id == user_id`.
 
+`image_ui.IMAGES` and `image_ui.ORIGINALS` follow the `TRANSCRIPTS` rule: keyed by
+`(chat_id, message_id)`. `ORIGINALS` is the only structure holding image bytes in memory —
+keep its cap small.
+
 ### Handler Registration Order
 
 `input_flow.register(app)` must happen before `help_ui.register(app)`. The input-flow handler registers into group -1 so it is seen before text handlers in group 0. Help registers the unknown-command catch-all, which must be LAST so specific handlers run first.
+
+`image_ui.register(app)` must come AFTER `input_flow.register(app)`. Both put a
+`REPLY & TEXT` handler in group -1, and registration order is execution order there: a reply
+to a ForceReply prompt must be claimed by the prompt consumer, not by the image refinement
+handler. A reply matching neither falls through to plain chat, untouched.
+`tests/test_input_flow.py` asserts this ordering — do not select group -1 handlers by
+position, there is more than one.
 
 ### Admin and User Roles
 
@@ -137,7 +151,51 @@ data is user-supplied and must never be trusted as an arbitrary integer.
 
 Model names are fetched live from the Gemini API via `settings.available_models()` so deprecated model names are self-service to update — prefer the `-latest` aliases where possible (e.g., `gemini-flash-latest` over `gemini-3.5-flash`).
 
-Fallback chains (audio and text) live in `settings.json` and are updated live; changing them does not require restart.
+Fallback chains live in `settings.json` and are updated live; changing them does not require restart.
+
+The set of model kinds is `settings.MODEL_KINDS` (`audio`, `text`, `image`), handled the
+same way as `STYLE_KINDS`: adding a kind means editing that tuple and adding a default
+chain, not adding per-kind branches.
+
+Pickers must use `settings.models_for_kind(kind)`, not `available_models()`. The API reports
+plain `generateContent` for image models, so the model *name* is the only signal that
+separates them; offering a text model in the image picker fails only at generation time with
+nothing to explain why. `_handle_model_list` and `_handle_choose_model` must index the same
+filtered list or the selected index picks the wrong model.
+
+`"image"` is deliberately both a model kind and a style kind, so `set:clear_image_<bool>`
+(the model) and `set:clear_image` (the standing instruction) share a prefix. The trailing
+underscore is what separates them, and the model branch must stay ahead of the generic
+style branch in `settings_ui._handle_callback`.
+
+### Image Generation and Spend
+
+Image models have a free-tier quota of exactly **0**. Billing must be enabled on the API
+key's project or every image call returns 429. Enabling billing moves the whole project to
+the paid tier, so text and audio stop being free too.
+
+Because it is the one feature that always costs money, every path checks
+`settings.can_generate_image()` **before** spending and calls
+`settings.record_image_spend()` with the token counts from the response's
+`usage_metadata` afterwards. Cost comes from measured tokens priced through
+`settings.IMAGE_PRICING`, not a flat per-image figure — resolution changes the output token
+count. An unlisted model prices at the most expensive known rate, so a rename can only
+over-report, never overspend.
+
+`settings.image_budget()` must distinguish unset from a deliberate 0, exactly as
+`timestamp_threshold()` does — a truthiness check would silently restore the default budget
+for an admin who switched the feature off. The total resets on the UTC month boundary.
+
+The metered figure is an estimate from a local price table, not billing data. Say so
+wherever it is displayed.
+
+The `set:budget:<usd>` callback validates against `IMAGE_BUDGET_CHOICES`, for the same
+reason `set:ts:` validates its own choices.
+
+Image generation runs through `asyncio.to_thread`. The google-genai SDK is synchronous and
+an image takes 10-20 seconds; called inline it blocks the event loop and stalls the bot for
+every other user. The audio path still has this problem — fix it the same way if you touch
+it.
 
 ## Code Style
 

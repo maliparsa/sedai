@@ -19,14 +19,25 @@ ignored.
   the bot treats it as spoken instructions for drafting a reply to the original message.
 - **Plain chat**: send the bot text and it responds via Gemini, keeping a running
   conversation per chat. `/reset` clears it.
+- **Image editing**: send a photo with a caption describing the change and the bot
+  returns the edited image. Without a caption it asks what to change. Reply to a result —
+  by text or by voice note — to refine it further, or tap **Again** for another take.
+  **Send as file** returns the uncompressed original, since Telegram recompresses photos.
+  Images sent as files are accepted too, which preserves the source quality.
+- **Image budget**: image generation is the one feature with no free Gemini tier, so every
+  call is metered against a monthly budget (default **$10**, admin-adjustable under
+  `/settings → Image budget`, `$0` switches the feature off). Cost is computed from the
+  token counts the API reports for each call. This is an estimate from published
+  per-token prices, not billing data — set a Google Cloud budget alert as the real
+  backstop.
 - **Model fallback**: each task tries a chain of Gemini models, falling back on
   rate limits or server errors instead of failing outright.
-- **Per-user model settings**: `/settings` lets any user choose their preferred audio
-  and text models. The admin can set default chains, manage the user list, update the API
+- **Per-user model settings**: `/settings` lets any user choose their preferred audio,
+  text and image models. The admin can set default chains, manage the user list, update the API
   key, and view status — all applied live without a restart.
 - **Standing instructions**: each user can set their own instructions (up to 500
   characters) that shape how the bot writes for them — one for draft replies, one for
-  plain chat, one for summaries, and one for transcripts. Call a style command with no argument to see the current
+  plain chat, one for summaries, one for transcripts, and one for image edits. Call a style command with no argument to see the current
   instruction in full and reply to update it; call it with text to set it inline. Reply
   with exactly `clear` to remove one. They apply live, and a voice-dictated per-message
   instruction outranks the standing reply instruction.
@@ -91,11 +102,12 @@ If you prefer to configure by hand:
 |---|---|---|
 | `/help` | all allowed users | lists available commands and how to use the bot |
 | `/start` | all allowed users | same as `/help`, shown on first contact |
-| `/settings` | all allowed users | configure your audio and text model preferences, or view/clear your standing instructions |
+| `/settings` | all allowed users | configure your audio, text and image model preferences, or view/clear your standing instructions |
 | `/replystyle [text]` | all allowed users | view your standing instruction for draft replies, or set a new one; reply with `clear` to remove |
 | `/chatstyle [text]` | all allowed users | view your standing instruction for plain chat, or set a new one; reply with `clear` to remove |
 | `/summarystyle [text]` | all allowed users | view your standing instruction for summaries, or set a new one; reply with `clear` to remove |
 | `/transcriptstyle [text]` | all allowed users | view your standing instruction for transcripts (e.g. `add [MM:SS] timestamps`), or set a new one; reply with `clear` to remove |
+| `/imagestyle [text]` | all allowed users | view your standing instruction for image edits, or set a new one; reply with `clear` to remove |
 | `/reset` | all allowed users | clear your chat history |
 | `/setkey <key>` | admin only | update the Gemini API key |
 | `/adduser <id>` | admin only | allow another Telegram user ID |
@@ -138,6 +150,15 @@ sudo systemctl enable --now sedai-bot
   use it with a freshly minted key and revoke the old one afterwards.
 - Unknown commands: allowed users get "Unknown command — try /help". Everyone else is
   ignored.
+- **Image generation requires a paid Gemini tier.** Every image model reports a free-tier
+  quota of exactly zero, so image editing returns an error until billing is enabled on the
+  API key's project. Text and audio are unaffected. Note that enabling billing moves the
+  whole project to the paid tier, so transcription and chat stop being free too — at
+  ordinary volumes that is around a dollar a month, while images dominate the bill.
+- Image spend is tracked in `settings.json` and resets at the start of each calendar month
+  (UTC). The admin can view per-user totals and reset the running count under
+  `/settings → Image budget`.
+- Albums are answered once, using the first photo — the bot edits one image at a time.
 
 ---
 
@@ -166,16 +187,28 @@ sudo systemctl enable --now sedai-bot
   آن را به عنوان دستور شفاهی برای نوشتن پاسخ به پیام اصلی در نظر می‌گیرد.
 - **گفت‌وگوی متنی**: هر پیام متنی به Gemini فرستاده می‌شود و تاریخچهٔ گفت‌وگو برای هر چت
   جداگانه نگه داشته می‌شود. دستور `/reset` آن را پاک می‌کند.
+- **ویرایش تصویر**: یک عکس همراه با کپشنی که تغییر موردنظر را توضیح می‌دهد بفرستید تا
+  ربات تصویر ویرایش‌شده را برگرداند. اگر کپشن نگذارید، ربات می‌پرسد چه چیزی تغییر کند. با
+  پاسخ دادن به نتیجه — چه با متن و چه با پیام صوتی — می‌توانید آن را بیشتر اصلاح کنید، یا
+  با دکمهٔ **Again** نسخهٔ دیگری بگیرید. دکمهٔ **Send as file** نسخهٔ فشرده‌نشده را
+  می‌فرستد، چون تلگرام عکس‌ها را دوباره فشرده می‌کند. تصویری که به صورت فایل فرستاده شود
+  هم پذیرفته می‌شود و کیفیت اصلی را حفظ می‌کند.
+- **بودجهٔ تصویر**: ساخت تصویر تنها قابلیتی است که در Gemini سطح رایگان ندارد، بنابراین
+  هزینهٔ هر فراخوانی در برابر یک بودجهٔ ماهانه شمرده می‌شود (پیش‌فرض **۱۰ دلار**، قابل
+  تغییر توسط مدیر در `/settings → Image budget`؛ مقدار `$0` این قابلیت را خاموش می‌کند).
+  هزینه از روی تعداد توکن‌هایی که API برای هر فراخوانی گزارش می‌کند محاسبه می‌شود. این
+  عدد تخمینی بر پایهٔ قیمت‌های منتشرشده است، نه دادهٔ صورتحساب — برای اطمینان واقعی در
+  Google Cloud هشدار بودجه تنظیم کنید.
 - **زنجیرهٔ مدل‌های جایگزین**: برای هر کار، فهرستی از مدل‌های Gemini به ترتیب امتحان
   می‌شود؛ در صورت محدودیت نرخ درخواست یا خطای سرور، مدل بعدی جایگزین می‌شود تا کار
   بی‌نتیجه نماند.
-- **تنظیم مدل برای هر کاربر**: با `/settings` هر کاربر می‌تواند مدل صوتی و متنی دلخواه
-  خود را انتخاب کند. مدیر علاوه بر این می‌تواند زنجیرهٔ پیش‌فرض مدل‌ها، فهرست کاربران
+- **تنظیم مدل برای هر کاربر**: با `/settings` هر کاربر می‌تواند مدل صوتی، متنی و تصویریِ
+  دلخواه خود را انتخاب کند. مدیر علاوه بر این می‌تواند زنجیرهٔ پیش‌فرض مدل‌ها، فهرست کاربران
   مجاز و کلید API را مدیریت کند و وضعیت سیستم را ببیند — همهٔ تغییرات بدون راه‌اندازی
   مجدد اعمال می‌شوند.
 - **دستورهای دائمی**: هر کاربر می‌تواند دستورهای شخصی خودش را (حداکثر ۵۰۰ نویسه) تعیین
   کند تا لحن و شیوهٔ نوشتن ربات را تغییر دهد — یکی برای پیش‌نویس پاسخ‌ها، یکی برای
-  گفت‌وگوی متنی، یکی برای خلاصه‌ها و یکی برای متن‌های رونویسی‌شده. اگر دستور مربوطه را بدون متن بفرستید، مقدار فعلی به
+  گفت‌وگوی متنی، یکی برای خلاصه‌ها، یکی برای متن‌های رونویسی‌شده و یکی برای ویرایش تصویر. اگر دستور مربوطه را بدون متن بفرستید، مقدار فعلی به
   طور کامل نمایش داده می‌شود و می‌توانید با پاسخ دادن آن را تغییر دهید؛ اگر همراه با متن
   بفرستید، مستقیماً تنظیم می‌شود. پاسخ دادن با واژهٔ `clear` آن را حذف می‌کند. این
   دستورها بی‌درنگ اعمال می‌شوند، و دستور صوتیِ مخصوصِ یک پیام بر دستور دائمیِ پاسخ اولویت
@@ -254,11 +287,12 @@ venv/bin/python sedai_bot.py
 |---|---|---|
 | `/help` | همهٔ کاربران مجاز | فهرست دستورها و نحوهٔ استفاده از ربات |
 | `/start` | همهٔ کاربران مجاز | مانند `/help`، در نخستین تماس نمایش داده می‌شود |
-| `/settings` | همهٔ کاربران مجاز | تنظیم مدل صوتی و متنی، و دیدن یا پاک کردن دستورهای دائمی |
+| `/settings` | همهٔ کاربران مجاز | تنظیم مدل صوتی، متنی و تصویری، و دیدن یا پاک کردن دستورهای دائمی |
 | `/replystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای پیش‌نویس پاسخ‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/chatstyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای گفت‌وگوی متنی؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/summarystyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای خلاصه‌ها؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/transcriptstyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای رونویسی (مثلاً «برچسب زمانی [MM:SS] اضافه کن»)؛ پاسخ با `clear` آن را حذف می‌کند |
+| `/imagestyle [متن]` | همهٔ کاربران مجاز | دیدن یا تنظیم دستور دائمی برای ویرایش تصویر؛ پاسخ با `clear` آن را حذف می‌کند |
 | `/reset` | همهٔ کاربران مجاز | پاک کردن تاریخچهٔ گفت‌وگو |
 | `/setkey <کلید>` | فقط مدیر | به‌روزرسانی کلید API مربوط به Gemini |
 | `/adduser <شناسه>` | فقط مدیر | افزودن یک شناسهٔ کاربری تلگرام به فهرست مجاز |
@@ -302,5 +336,15 @@ sudo systemctl enable --now sedai-bot
   بنابراین بهتر است کلیدی تازه‌ساخته را وارد کنید و کلید قبلی را پس از آن باطل کنید.
 - دستور ناشناخته: کاربران مجاز پیام «Unknown command — try /help» را می‌گیرند و بقیه
   نادیده گرفته می‌شوند.
+- **ساخت تصویر به سطح پولی Gemini نیاز دارد.** سهمیهٔ رایگان همهٔ مدل‌های تصویری دقیقاً
+  صفر است، بنابراین تا وقتی صورتحساب برای پروژهٔ کلید API فعال نشود، ویرایش تصویر خطا
+  برمی‌گرداند. متن و صدا از این بابت تأثیری نمی‌گیرند. توجه کنید که فعال کردن صورتحساب کل
+  پروژه را به سطح پولی می‌برد، پس رونویسی و گفت‌وگو هم دیگر رایگان نیستند — در حجم معمول
+  حدود یک دلار در ماه، در حالی که بیشترِ هزینه مربوط به تصویر است.
+- هزینهٔ تصویر در `settings.json` ثبت می‌شود و در آغاز هر ماه میلادی (به وقت UTC) صفر
+  می‌شود. مدیر می‌تواند مجموع هزینهٔ هر کاربر را ببیند و شمارش جاری را در
+  `/settings → Image budget` صفر کند.
+- به آلبوم عکس یک بار پاسخ داده می‌شود و تنها عکس نخست ویرایش می‌گردد — ربات هر بار یک
+  تصویر را ویرایش می‌کند.
 
 </div>

@@ -92,6 +92,23 @@ class Audio:
         self.mime_type = mime_type
 
 
+class PhotoSize:
+    def __init__(self, file_id="photo-1", file_size=1234, width=1024, height=1024):
+        self.file_id = file_id
+        self.file_size = file_size
+        self.width = width
+        self.height = height
+
+
+class Document:
+    def __init__(self, file_id="doc-1", mime_type="image/png", file_size=2048,
+                 file_name="pic.png"):
+        self.file_id = file_id
+        self.mime_type = mime_type
+        self.file_size = file_size
+        self.file_name = file_name
+
+
 class Bot:
     # Set by tests to make setMyCommands fail, proving startup survives it.
     fail_set_my_commands = False
@@ -106,6 +123,20 @@ class Bot:
                            reply_markup=None, parse_mode=None):
         ACTIONS.append(("send_message", chat_id, text, reply_markup))
         return Message(message_id=9999, chat_id=chat_id, text=text)
+
+    async def send_photo(self, chat_id=None, photo=None, caption=None,
+                         reply_to_message_id=None, reply_markup=None, parse_mode=None):
+        data = photo.getvalue() if hasattr(photo, "getvalue") else photo
+        ACTIONS.append(("send_photo", chat_id, caption, len(data or b""), reply_markup))
+        msg = Message(message_id=8888, chat_id=chat_id)
+        msg.photo = [PhotoSize(file_id="result-file-id", file_size=len(data or b""))]
+        return msg
+
+    async def send_document(self, chat_id=None, document=None, filename=None,
+                            caption=None, reply_to_message_id=None, reply_markup=None):
+        data = document.getvalue() if hasattr(document, "getvalue") else document
+        ACTIONS.append(("send_document", chat_id, filename, len(data or b"")))
+        return Message(message_id=8889, chat_id=chat_id)
 
     async def get_file(self, file_id):
         ACTIONS.append(("get_file", file_id))
@@ -128,6 +159,10 @@ class Message:
         self.chat = Chat(chat_id)
         self.voice = None
         self.audio = None
+        self.photo = []
+        self.document = None
+        self.caption = None
+        self.media_group_id = None
         self.reply_to_message = None
         self.from_user = User(user_id) if user_id else None
 

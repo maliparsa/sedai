@@ -61,10 +61,21 @@ async def main():
     check("reply handler registered in group -1", -1 in groups or any(
         g == -1 for g in groups), sorted(groups) if groups else "no group info")
 
+    # Group -1 holds more than one handler now (the image refinement handler shares it), so
+    # pick this module's consumer by identity rather than by position.
+    group_minus_one = groups.get(-1, [])
     consume = None
-    for h in groups.get(-1, []):
-        consume = h.callback
+    for h in group_minus_one:
+        if h.callback is input_flow._consume:
+            consume = h.callback
     check("found the group -1 consumer", consume is not None)
+
+    # Ordering within the group is what keeps a reply to a ForceReply prompt from being
+    # claimed by another group -1 handler first. Registration order is execution order.
+    callbacks = [h.callback for h in group_minus_one]
+    check("the prompt consumer runs before any other group -1 handler",
+          callbacks and callbacks[0] is input_flow._consume,
+          [getattr(c, "__name__", c) for c in callbacks])
 
     async def send_reply(user_id, reply_to_message_id, text, chat_id=None):
         telegram.ACTIONS.clear()

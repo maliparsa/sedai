@@ -17,15 +17,37 @@ log = logging.getLogger("sedai-bot")
 # Hardcoded defaults matching sedai_bot.py
 _DEFAULT_AUDIO_MODELS = ["gemini-flash-latest", "gemini-3.5-flash", "gemini-3.1-flash-lite"]
 _DEFAULT_TEXT_MODELS = ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.1-flash-lite"]
+# Image models have no free tier at all, so this chain is ordered by cost, cheapest first.
+_DEFAULT_IMAGE_MODELS = ["gemini-3.1-flash-image", "gemini-2.5-flash-image", "gemini-3-pro-image"]
+
+# Every kind of model the bot picks per user. Adding a kind is a one-tuple edit here plus
+# a default chain above; every consumer iterates this rather than hardcoding names.
+MODEL_KINDS = ("audio", "text", "image")
+
+
+def _default_chain(kind: str) -> list[str]:
+    return {
+        "audio": _DEFAULT_AUDIO_MODELS,
+        "text": _DEFAULT_TEXT_MODELS,
+        "image": _DEFAULT_IMAGE_MODELS,
+    }[kind].copy()
+
+
+def _check_kind(kind: str) -> None:
+    if kind not in MODEL_KINDS:
+        raise ValueError(f"kind must be one of {MODEL_KINDS}, got {kind}")
 
 # Global mutable state: the current in-memory config
 _state = {
     "gemini_api_key": None,
     "gemini_client": None,
     "allowed_user_ids": [],
-    "default_models": {"audio": _DEFAULT_AUDIO_MODELS.copy(), "text": _DEFAULT_TEXT_MODELS.copy()},
+    "default_models": {k: _default_chain(k) for k in MODEL_KINDS},
     "users": {},  # user_id (as int key) -> {"audio_model": ..., "text_model": ...}
     "available_models_cache": {"data": None, "timestamp": 0},
+    # Estimated spend on image generation, which unlike text and audio has no free tier.
+    "image_budget_usd": None,   # None means "unconfigured", so the default applies; 0 means no cap
+    "image_spend": {"month": "", "usd": 0.0, "count": 0, "users": {}},
 }
 
 _settings_path = None
@@ -68,6 +90,8 @@ def _persist_settings():
         "gemini_api_key": _state["gemini_api_key"],
         "allowed_user_ids": _state["allowed_user_ids"],
         "users": _state["users"],
+        "image_budget_usd": _state["image_budget_usd"],
+        "image_spend": _state["image_spend"],
     }
 
     path = _get_settings_path()
@@ -99,20 +123,26 @@ def load() -> None:
         # Use file values where available
         _state["gemini_api_key"] = file_data.get("gemini_api_key") or _get_api_key_from_env()
         _state["allowed_user_ids"] = file_data.get("allowed_user_ids") or _get_allowed_user_ids_from_env()
-        _state["default_models"] = file_data.get("default_models") or {
-            "audio": _DEFAULT_AUDIO_MODELS.copy(),
-            "text": _DEFAULT_TEXT_MODELS.copy(),
-        }
+        _state["default_models"] = file_data.get("default_models") or {}
         _state["users"] = file_data.get("users") or {}
+        _state["image_budget_usd"] = file_data.get("image_budget_usd")
+        _state["image_spend"] = file_data.get("image_spend") or {
+            "month": "", "usd": 0.0, "count": 0, "users": {}
+        }
     else:
         # Fall back to env/defaults
         _state["gemini_api_key"] = _get_api_key_from_env()
         _state["allowed_user_ids"] = _get_allowed_user_ids_from_env()
-        _state["default_models"] = {
-            "audio": _DEFAULT_AUDIO_MODELS.copy(),
-            "text": _DEFAULT_TEXT_MODELS.copy(),
-        }
+        _state["default_models"] = {}
         _state["users"] = {}
+        _state["image_budget_usd"] = None
+        _state["image_spend"] = {"month": "", "usd": 0.0, "count": 0, "users": {}}
+
+    # A settings.json written before a kind existed simply lacks it; fill from defaults so
+    # an upgrade never leaves a chain empty.
+    for kind in MODEL_KINDS:
+        if not _state["default_models"].get(kind):
+            _state["default_models"][kind] = _default_chain(kind)
 
     # Normalize users keys to int
     normalized_users = {}
@@ -220,19 +250,22 @@ def text_models(user_id: int | None = None) -> list[str]:
     return _effective_models(user_id, "text")
 
 
+def image_models(user_id: int | None = None) -> list[str]:
+    """Return effective image-generation model chain for the user."""
+    return _effective_models(user_id, "image")
+
+
 def get_user_model(user_id: int, kind: str) -> str | None:
-    """Get user's per-user preference for audio or text models."""
-    if kind not in ("audio", "text"):
-        raise ValueError(f"kind must be 'audio' or 'text', got {kind}")
+    """Get user's per-user model preference for one of MODEL_KINDS."""
+    _check_kind(kind)
     if user_id not in _state["users"]:
         return None
     return _state["users"][user_id].get(f"{kind}_model")
 
 
 def set_user_model(user_id: int, kind: str, model: str | None) -> None:
-    """Set user's per-user preference for audio or text models. None clears it."""
-    if kind not in ("audio", "text"):
-        raise ValueError(f"kind must be 'audio' or 'text', got {kind}")
+    """Set user's per-user model preference for one of MODEL_KINDS. None clears it."""
+    _check_kind(kind)
     if user_id not in _state["users"]:
         _state["users"][user_id] = {"audio_model": None, "text_model": None}
     _state["users"][user_id][f"{kind}_model"] = model
@@ -276,7 +309,7 @@ def should_timestamp(user_id: int | None, duration_seconds: int | None) -> bool:
 
 
 # Standing instructions (styles)
-STYLE_KINDS = ("reply", "chat", "summary", "transcript")
+STYLE_KINDS = ("reply", "chat", "summary", "transcript", "image")
 STYLE_MAX_LEN = 500
 
 
@@ -330,15 +363,13 @@ def set_user_style(user_id: int, kind: str, text: str | None) -> None:
 
 def default_models(kind: str) -> list[str]:
     """Return the current global default model chain."""
-    if kind not in ("audio", "text"):
-        raise ValueError(f"kind must be 'audio' or 'text', got {kind}")
+    _check_kind(kind)
     return list(_state["default_models"].get(kind, []))
 
 
 def set_default_model(kind: str, model: str) -> None:
-    """Promote model to the head of the default chain for audio or text."""
-    if kind not in ("audio", "text"):
-        raise ValueError(f"kind must be 'audio' or 'text', got {kind}")
+    """Promote model to the head of the default chain for this kind."""
+    _check_kind(kind)
     chain = _state["default_models"].setdefault(kind, [])
     if model in chain:
         chain.remove(model)
@@ -442,6 +473,159 @@ def available_models(force: bool = False) -> list[str]:
         return sorted(list(all_models))
 
 
+# ---------------------------------------------------------------------------
+# Image spend metering
+#
+# Image generation is the only feature here with no free tier, so it is the only one that
+# can run up a bill. Cost is derived from the token counts the API reports rather than a
+# flat per-image price, because resolution changes the output token count and therefore the
+# price. This is an ESTIMATE from a local price table, not billing truth — Google's console
+# is authoritative, and a Cloud budget alert should back this up.
+# Rates are USD per 1M tokens, as (input, output).
+IMAGE_PRICING = {
+    "gemini-3.1-flash-image": (0.50, 60.00),
+    "gemini-3.1-flash-image-preview": (0.50, 60.00),
+    "gemini-3.1-flash-lite-image": (0.25, 30.00),
+    "gemini-2.5-flash-image": (0.30, 30.00),
+    "gemini-3-pro-image": (2.00, 120.00),
+    "gemini-3-pro-image-preview": (2.00, 120.00),
+    "nano-banana-pro-preview": (2.00, 120.00),
+}
+
+# An unlisted model bills at the most expensive known rate. Erring high means a new or
+# renamed model can only ever over-report spend, never quietly blow through the cap.
+_IMAGE_PRICING_FALLBACK = (2.00, 120.00)
+
+# Token counts assumed for the pre-flight check, before the real usage is known. Slightly
+# above a typical 1K-resolution edit (275 in / 1193 out measured), so the check errs high.
+_PRECHECK_INPUT_TOKENS = 1500
+_PRECHECK_OUTPUT_TOKENS = 1400
+
+IMAGE_BUDGET_DEFAULT = 10.0  # USD per calendar month; 0 disables image generation entirely
+
+
+def _image_rates(model: str) -> tuple[float, float]:
+    return IMAGE_PRICING.get(model, _IMAGE_PRICING_FALLBACK)
+
+
+def image_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimated USD cost of one image generation call."""
+    rate_in, rate_out = _image_rates(model)
+    return (input_tokens or 0) / 1e6 * rate_in + (output_tokens or 0) / 1e6 * rate_out
+
+
+def image_cost_estimate(model: str) -> float:
+    """Pre-flight cost estimate for one image, used before the call reports real usage."""
+    return image_cost(model, _PRECHECK_INPUT_TOKENS, _PRECHECK_OUTPUT_TOKENS)
+
+
+def image_budget() -> float:
+    """Monthly image budget in USD. 0 means image generation is switched off."""
+    value = _state["image_budget_usd"]
+    # Distinguish unconfigured from a deliberate 0, which means off. A truthiness check here
+    # would silently restore the default budget for an admin who set it to zero.
+    return IMAGE_BUDGET_DEFAULT if value is None else float(value)
+
+
+def set_image_budget(usd: float | None) -> None:
+    """Set the monthly image budget. None restores the default, 0 disables generation."""
+    if usd is not None:
+        usd = float(usd)
+        if usd < 0:
+            raise ValueError("budget must be >= 0")
+    _state["image_budget_usd"] = usd
+    _persist_settings()
+
+
+def _current_month() -> str:
+    return time.strftime("%Y-%m", time.gmtime())
+
+
+def _roll_month(persist: bool = True) -> dict:
+    """Zero the running total when the calendar month changes (UTC)."""
+    spend = _state["image_spend"]
+    month = _current_month()
+    if spend.get("month") != month:
+        spend.clear()
+        spend.update({"month": month, "usd": 0.0, "count": 0, "users": {}})
+        if persist:
+            _persist_settings()
+    return spend
+
+
+def image_spend() -> dict:
+    """Current month's image spend: {month, usd, count, users}."""
+    spend = _roll_month()
+    return {
+        "month": spend["month"],
+        "usd": round(float(spend.get("usd", 0.0)), 4),
+        "count": int(spend.get("count", 0)),
+        "users": dict(spend.get("users", {})),
+    }
+
+
+def image_budget_remaining() -> float:
+    budget = image_budget()
+    if budget <= 0:
+        return 0.0
+    return max(0.0, budget - image_spend()["usd"])
+
+
+def can_generate_image(model: str) -> tuple[bool, float]:
+    """Whether one more image fits in this month's budget. Returns (allowed, remaining)."""
+    budget = image_budget()
+    remaining = image_budget_remaining()
+    if budget <= 0:
+        return False, 0.0
+    return image_cost_estimate(model) <= remaining, remaining
+
+
+def record_image_spend(user_id: int | None, model: str,
+                       input_tokens: int, output_tokens: int) -> float:
+    """Add one call's actual cost to the running total. Returns the cost recorded."""
+    cost = image_cost(model, input_tokens, output_tokens)
+    spend = _roll_month(persist=False)
+    spend["usd"] = float(spend.get("usd", 0.0)) + cost
+    spend["count"] = int(spend.get("count", 0)) + 1
+    if user_id is not None:
+        users = spend.setdefault("users", {})
+        key = str(user_id)
+        entry = users.setdefault(key, {"usd": 0.0, "count": 0})
+        entry["usd"] = float(entry.get("usd", 0.0)) + cost
+        entry["count"] = int(entry.get("count", 0)) + 1
+    _persist_settings()
+    return cost
+
+
+def reset_image_spend() -> None:
+    """Zero this month's running total without waiting for the month to roll."""
+    _state["image_spend"] = {"month": _current_month(), "usd": 0.0, "count": 0, "users": {}}
+    _persist_settings()
+
+
+# Substrings that mark a model as an image generator. The models.list() response does not
+# distinguish image output from text output — every image model reports plain
+# generateContent — so the name is the only signal available.
+_IMAGE_MODEL_MARKERS = ("image", "banana")
+
+
+def is_image_model(name: str) -> bool:
+    return any(marker in name.lower() for marker in _IMAGE_MODEL_MARKERS)
+
+
+def models_for_kind(kind: str, force: bool = False) -> list[str]:
+    """available_models() narrowed to those usable for this kind.
+
+    Without this the image picker lists every text model too — around sixty entries — and
+    picking a text model for image work fails at generation time with nothing to explain it.
+    """
+    _check_kind(kind)
+    models = available_models(force=force)
+    if kind == "image":
+        return [m for m in models if is_image_model(m)]
+    return [m for m in models if not is_image_model(m)]
+
+
 def snapshot() -> dict:
     """Return a snapshot of settings for the status screen (no secrets beyond fingerprint)."""
     styles_count = 0
@@ -451,9 +635,15 @@ def snapshot() -> dict:
             if styles.get(kind):
                 styles_count += 1
 
+    spend = image_spend()
     return {
         "default_audio_models": default_models("audio"),
         "default_text_models": default_models("text"),
+        "default_image_models": default_models("image"),
+        "image_budget_usd": image_budget(),
+        "image_spend_usd": spend["usd"],
+        "image_spend_count": spend["count"],
+        "image_spend_month": spend["month"],
         "api_key_fingerprint": api_key_fingerprint(),
         "allowed_user_count": len(_state["allowed_user_ids"]),
         "settings_path": _get_settings_path(),

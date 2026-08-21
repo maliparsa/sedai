@@ -59,6 +59,7 @@ async def _show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     if is_admin:
         buttons.append([InlineKeyboardButton("Default models", callback_data="set:default_models")])
         buttons.append([InlineKeyboardButton("Users", callback_data="set:users")])
+        buttons.append([InlineKeyboardButton("Image budget", callback_data="set:image_budget")])
         buttons.append([InlineKeyboardButton("API key", callback_data="set:api_key")])
         buttons.append([InlineKeyboardButton("Status", callback_data="set:status")])
 
@@ -80,6 +81,7 @@ async def _handle_my_models(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     buttons = [
         [InlineKeyboardButton("Audio model", callback_data="set:my_audio")],
         [InlineKeyboardButton("Text model", callback_data="set:my_text")],
+        [InlineKeyboardButton("Image model", callback_data="set:my_image")],
         [InlineKeyboardButton("Back", callback_data="set:back")],
     ]
     markup = InlineKeyboardMarkup(buttons)
@@ -285,6 +287,7 @@ async def _handle_default_models(update: Update, context: ContextTypes.DEFAULT_T
     buttons = [
         [InlineKeyboardButton("Audio model", callback_data="set:default_audio")],
         [InlineKeyboardButton("Text model", callback_data="set:default_text")],
+        [InlineKeyboardButton("Image model", callback_data="set:default_image")],
         [InlineKeyboardButton("Back", callback_data="set:back")],
     ]
     markup = InlineKeyboardMarkup(buttons)
@@ -308,7 +311,7 @@ async def _handle_model_list(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     # Pagination: max 8 models per page
     page = int(context.user_data.get(f"model_page_{kind}_{is_default}", 0))
-    available = settings.available_models()
+    available = settings.models_for_kind(kind)
     models_per_page = 8
 
     if not available:
@@ -360,7 +363,7 @@ async def _handle_model_list(update: Update, context: ContextTypes.DEFAULT_TYPE,
     buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
 
     markup = InlineKeyboardMarkup(buttons)
-    model_type = "Audio" if kind == "audio" else "Text"
+    model_type = {"audio": "Audio", "text": "Text", "image": "Image"}.get(kind, kind.capitalize())
     mode = "Default" if is_default else "My"
     await query.edit_message_text(f"{mode} {model_type} model", reply_markup=markup)
 
@@ -371,6 +374,14 @@ async def _handle_my_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def _handle_my_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _handle_model_list(update, context, kind="text", is_default=False, is_admin_check=False)
+
+
+async def _handle_my_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_model_list(update, context, kind="image", is_default=False, is_admin_check=False)
+
+
+async def _handle_default_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _handle_model_list(update, context, kind="image", is_default=True, is_admin_check=True)
 
 
 async def _handle_default_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -407,7 +418,7 @@ async def _handle_choose_model(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer("Invalid callback.", show_alert=True)
         return
 
-    available = settings.available_models()
+    available = settings.models_for_kind(kind)
     if idx < 0 or idx >= len(available):
         await query.answer("This menu expired — send /settings again.", show_alert=True)
         return
@@ -618,9 +629,16 @@ async def _handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     num_users = snapshot.get("allowed_user_count", 0)
     settings_path = snapshot.get("settings_path", "unknown")
 
+    image_chain = "\n".join(snapshot.get("default_image_models", []))
+
     text = (
         f"Default audio chain:\n{audio_chain}\n\n"
         f"Default text chain:\n{text_chain}\n\n"
+        f"Default image chain:\n{image_chain}\n\n"
+        f"Image budget: ${snapshot.get('image_budget_usd', 0):.2f}/month "
+        f"(${snapshot.get('image_spend_usd', 0):.2f} spent on "
+        f"{snapshot.get('image_spend_count', 0)} images in "
+        f"{snapshot.get('image_spend_month', '?')})\n"
         f"API key: {key_fingerprint}\n"
         f"Allowed users: {num_users}\n"
         f"Settings file: {settings_path}"
@@ -631,6 +649,82 @@ async def _handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     markup = InlineKeyboardMarkup(buttons)
     await query.edit_message_text(text, reply_markup=markup)
+
+
+# Offered budgets in USD per month. 0 switches image generation off entirely.
+IMAGE_BUDGET_CHOICES = (0, 5, 10, 20, 50)
+
+
+async def _handle_image_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if not settings.is_admin(user_id):
+        await query.answer()
+        return
+
+    await query.answer()
+
+    budget = settings.image_budget()
+    spend = settings.image_spend()
+    remaining = settings.image_budget_remaining()
+
+    if budget <= 0:
+        headline = "Image editing is OFF (budget $0)."
+    else:
+        headline = (
+            f"Budget ${budget:.2f}/month — ${spend['usd']:.2f} spent on "
+            f"{spend['count']} images, ${remaining:.2f} left."
+        )
+
+    lines = [headline, f"Month: {spend['month']}"]
+    if spend["users"]:
+        lines.append("")
+        for uid, entry in spend["users"].items():
+            lines.append(f"  {uid}: ${float(entry.get('usd', 0)):.2f} ({entry.get('count', 0)})")
+    lines.append("")
+    lines.append("This is an estimate from published per-token prices, not billing data. "
+                 "Google's console is authoritative.")
+
+    buttons = []
+    row = []
+    for choice in IMAGE_BUDGET_CHOICES:
+        label = "Off" if choice == 0 else f"${choice}"
+        if abs(budget - choice) < 0.005:
+            label = "• " + label
+        row.append(InlineKeyboardButton(label, callback_data=f"set:budget:{choice}"))
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    buttons.append([InlineKeyboardButton("Reset this month's spend",
+                                         callback_data="set:budget_reset")])
+    buttons.append([InlineKeyboardButton("Back", callback_data="set:back")])
+
+    await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons))
+
+
+async def _handle_set_image_budget(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                   usd: int) -> None:
+    query = update.callback_query
+    if not settings.is_admin(update.effective_user.id):
+        await query.answer()
+        return
+    settings.set_image_budget(float(usd))
+    await query.answer("Image editing switched off." if usd == 0 else f"Budget set to ${usd}.")
+    await _handle_image_budget(update, context)
+
+
+async def _handle_reset_image_spend(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not settings.is_admin(update.effective_user.id):
+        await query.answer()
+        return
+    settings.reset_image_spend()
+    await query.answer("Spend reset.")
+    await _handle_image_budget(update, context)
 
 
 async def _handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -685,6 +779,10 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_my_audio(update, context)
     elif data == "set:my_text":
         await _handle_my_text(update, context)
+    elif data == "set:my_image":
+        await _handle_my_image(update, context)
+    elif data == "set:default_image":
+        await _handle_default_image(update, context)
     elif data == "set:default_audio":
         await _handle_default_audio(update, context)
     elif data == "set:default_text":
@@ -697,22 +795,42 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _handle_choose_model(update, context, kind="audio", is_default=True)
     elif data.startswith("set:choose_text_True:"):
         await _handle_choose_model(update, context, kind="text", is_default=True)
+    elif data.startswith("set:choose_image_False:"):
+        await _handle_choose_model(update, context, kind="image", is_default=False)
+    elif data.startswith("set:choose_image_True:"):
+        await _handle_choose_model(update, context, kind="image", is_default=True)
     elif data.startswith("set:clear_audio"):
         await _handle_clear_model(update, context, kind="audio", is_default="True" in data)
     elif data.startswith("set:clear_text"):
         await _handle_clear_model(update, context, kind="text", is_default="True" in data)
+    elif data.startswith("set:clear_image_"):
+        await _handle_clear_model(update, context, kind="image", is_default="True" in data)
     elif data.startswith("set:page_audio"):
         is_default = "True" in data
         await _handle_paginate_models(update, context, kind="audio", is_default=is_default)
     elif data.startswith("set:page_text"):
         is_default = "True" in data
         await _handle_paginate_models(update, context, kind="text", is_default=is_default)
+    elif data.startswith("set:page_image"):
+        is_default = "True" in data
+        await _handle_paginate_models(update, context, kind="image", is_default=is_default)
     elif data == "set:users":
         await _handle_users(update, context)
     elif data == "set:add_user":
         await _handle_add_user_prompt(update, context)
     elif data.startswith("set:remove_user:"):
         await _handle_remove_user(update, context)
+    elif data == "set:image_budget":
+        await _handle_image_budget(update, context)
+    elif data == "set:budget_reset":
+        await _handle_reset_image_spend(update, context)
+    elif data.startswith("set:budget:"):
+        raw = data[len("set:budget:"):]
+        # Only honour values the menu actually offers, never an arbitrary callback payload.
+        if raw.isdigit() and int(raw) in IMAGE_BUDGET_CHOICES:
+            await _handle_set_image_budget(update, context, int(raw))
+        else:
+            await query.answer()
     elif data == "set:api_key":
         await _handle_api_key(update, context)
     elif data == "set:set_key":

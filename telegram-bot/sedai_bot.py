@@ -21,11 +21,13 @@ from telegram.ext import (
 from google.genai import errors as genai_errors
 from google.genai import types
 
+import common
 import settings
 import settings_ui
 import style_ui
 import input_flow
 import help_ui
+import image_ui
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sedai-bot")
@@ -37,16 +39,8 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 _FALLBACK_STATUS_CODES = {429, 500, 503}
 
 
-def _user_error(prefix: str, exc: Exception) -> str:
-    """A reportable message that never carries an API error body.
-
-    Interpolating the exception would put provider text — which can quote back request
-    material — into the chat. The type and any status code are enough to act on; the
-    full detail is in the log.
-    """
-    code = getattr(exc, "code", None)
-    detail = f"{type(exc).__name__}" + (f" {code}" if code else "")
-    return f"{prefix} ({detail}). It's logged — try again, or /help."
+# Shared with image_ui; see common.user_error for why the exception is never interpolated.
+_user_error = common.user_error
 
 
 def _generate_with_fallback(models: list[str], contents):
@@ -279,9 +273,23 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await msg.reply_text(_user_error("Transcription failed", e))
         return
 
+    reply_target = msg.reply_to_message
+
+    # A voice note replying to an image we produced is a spoken edit instruction, the same
+    # way a voice note replying to a transcript is a spoken reply instruction.
+    image_target = (
+        image_ui.instruction_target(msg.chat_id, reply_target.message_id)
+        if reply_target else None
+    )
+    if image_target is not None:
+        # Echo what was heard first: an edit that acts on a misheard instruction is otherwise
+        # impossible to tell apart from a bad edit.
+        await _send_chunks(context.bot, msg.chat_id, text, reply_to_message_id=msg.message_id)
+        await image_ui.run_edit(update, context, image_target, "image/jpeg", text, msg.message_id)
+        return
+
     # If this voice note is a reply to a transcript we know about, treat it as spoken
     # instructions for how to reply to that original message, rather than a standalone note.
-    reply_target = msg.reply_to_message
     original_text = TRANSCRIPTS.get((msg.chat_id, reply_target.message_id)) if reply_target else None
 
     if original_text is not None:
@@ -416,6 +424,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(handle_button, pattern=r"^(summarize|reply):\d+$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     input_flow.register(app)
+    image_ui.register(app)
     style_ui.register(app)
     help_ui.register(app)
     app.add_error_handler(handle_error)
